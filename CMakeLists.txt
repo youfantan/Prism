@@ -1,33 +1,74 @@
-cmake_minimum_required(VERSION 3.31)
-project(Gerk)
+cmake_minimum_required(VERSION 4.2)
+project(Prism)
 
 set(CMAKE_CXX_STANDARD 20)
-include_directories(include)
-add_compile_definitions(-DUNICODE)
-link_directories(lib)
 
+# add include directories
+include_directories(include)
+include_directories(thirdparty/include)
+
+# set UNICODE for Win32 API
+add_compile_definitions(-DUNICODE _CRT_SECURE_NO_WARNINGS)
+
+# copy ./shaders and ./assets to the build directory
 set(COPY_DIRS shaders assets textures)
 add_custom_target(copy_dirs ALL)
 foreach(dir ${COPY_DIRS})
     add_custom_command(POST_BUILD TARGET copy_dirs
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/${dir}
-            $<TARGET_FILE_DIR:Gerk>/${dir}
+            $<TARGET_FILE_DIR:PrismRenderer>/${dir}
     )
 endforeach ()
 
-add_executable(Gerk main.cpp
-        src/win32/window.h
-        src/win32/common.h
-        src/dx12/dx12_framework.h
-        src/logic.h
-        src/common/obj_loader.h
-        src/common/model_loader.h
-        "src/dx12/square_pyramid_sample.hpp"
-        src/dx12/dx12_ui.h
-        src/common/font_loader.h
-        src/dx12/dx12_transformation.h
-        src/common/logger.h
+# copy *.dll in ./thirdparty/link/release to the build directory when configured as Release;
+# or copy *.dll and *.pdb in ./thirdparty/link/debug to the build directory when configured as Debug.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(THIRDPARTY_LINK_DIR "${CMAKE_SOURCE_DIR}/thirdparty/link/debug")
+    set(THIRDPARTY_COPY_PATTERN "*.dll")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(THIRDPARTY_LINK_DIR "${CMAKE_SOURCE_DIR}/thirdparty/link/release")
+    set(THIRDPARTY_COPY_PATTERN "*.dll;*.pdb")
+endif()
+file(GLOB THIRDPARTY_COPY_FILES
+        LIST_DIRECTORIES false
+        ${THIRDPARTY_LINK_DIR}/${THIRDPARTY_COPY_PATTERN}
 )
-target_link_libraries(Gerk d3d12 dxgi d3dcompiler freetyped)
-add_dependencies(Gerk copy_dirs)
+add_custom_target(copy_binaries ALL)
+foreach(file ${THIRDPARTY_COPY_FILES})
+    add_custom_command(POST_BUILD TARGET copy_binaries
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${file}"
+            "$<TARGET_FILE_DIR:PrismRenderer>/"
+    )
+endforeach()
+
+# add link directories
+link_directories(${THIRDPARTY_LINK_DIR})
+
+add_executable(PrismRenderer
+        src/main.cpp
+        include/io/texture.h
+        include/render/framework.h
+        src/render/framework.cpp
+        include/base.h
+        include/render/queue.h
+        src/render/queue.cpp
+        include/render/resource.h
+        include/render/drawcall.h
+        include/render/sync.h
+        include/utils.h
+        src/io/texture.cpp
+        include/mlog.h
+        include/io/shader.h
+        include/transform/camera.h
+        src/transform/camera.cpp
+        src/render/sync.cpp
+        src/render/resource.cpp
+        src/render/drawcall.cpp
+)
+target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler turbojpeg)
+add_dependencies(PrismRenderer copy_dirs copy_binaries)
+set_target_properties(PrismRenderer PROPERTIES
+        WIN32_EXECUTABLE TRUE
+)
