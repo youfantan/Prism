@@ -1,10 +1,10 @@
 #pragma once
 
 #include <base.h>
-#include <format>
+#include <mlog.h>
+#include <utils.h>
 
-#include "mlog.h"
-#include "utils.h"
+#include <format>
 
 class ShaderLoader
 {
@@ -38,7 +38,7 @@ private:
         return "unknown";
     }
 public:
-    ShaderLoader(const std::string& prefix) : prefix_(prefix) {
+    ShaderLoader(std::string_view prefix) : prefix_(prefix) {
 
     }
 

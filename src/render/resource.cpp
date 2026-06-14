@@ -46,6 +46,9 @@ std::optional<D3D12_CPU_DESCRIPTOR_HANDLE> BindlessHeap::BindShaderResource(std:
     device_->CreateShaderResourceView(res.GetComPtr().Get(), &desc, handle);
     res.GetView() = handle;
     heap_mapping_[name] = index;
+#ifndef NDEBUG
+    res.GetComPtr()->SetName(ConvertStringToWstring(name).value().data());
+#endif
     return handle;
 }
 
@@ -59,6 +62,9 @@ std::optional<D3D12_CPU_DESCRIPTOR_HANDLE> BindlessHeap::BindConstantBuffer(std:
     device_->CreateConstantBufferView(&desc, handle);
     res.GetView() = handle;
     heap_mapping_[name] = index;
+#ifndef NDEBUG
+    res.GetComPtr()->SetName(ConvertStringToWstring(name).value().data());
+#endif
     return handle;
 }
 

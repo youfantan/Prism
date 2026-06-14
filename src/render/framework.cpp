@@ -58,13 +58,14 @@ void RenderContext::Render(render_callback_t&& rcb) {
         list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
         list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         list->ClearRenderTargetView(rtv, init_.rt_clear_color, 0, nullptr);
-        for (const auto& [drawcall, record] : records_) {
-                record(list);
+        for (const auto& [drawcall, draw, sync] : records_) {
+                draw(list);
         }
         fr.back_buffer.Transition(D3D12_RESOURCE_STATE_PRESENT, list);
         uint64_t fence_value = render_queue_.CommitRenderQueue(swapchain_->GetCurrentBackBufferIndex());
-        for (const auto& [drawcall, record] : records_) {
+        for (const auto& [drawcall, record, sync] : records_) {
                 drawcall->waitable_ = Waitable(render_queue_.GetRenderFence(), fence_value);
+                sync(render_queue_.GetRenderFence(), fence_value);
         }
         swapchain_->Present(1, 0);
 }

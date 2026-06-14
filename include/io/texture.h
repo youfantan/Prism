@@ -3,7 +3,6 @@
 #include <base.h>
 #include <optional>
 #include <string>
-#include <jpegturbo/turbojpeg.h>
 
 class TextureLoader {
 public:
@@ -19,7 +18,7 @@ public:
 private:
     const std::string prefix_;
 public:
-    TextureLoader(const std::string& prefix);
+    TextureLoader(std::string_view prefix);
     std::optional<texture_in_memory_t> LoadTextureIntoMemory(const std::string& tex_name);
     void FreeTextureInMemory(texture_in_memory_t& tex);
     

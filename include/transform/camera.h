@@ -1,28 +1,24 @@
 #pragma once
 
 #include <base.h>
-#include <unordered_map>
 
-struct alignas(16) float4x4 {
-    float f0_0; float f0_1; float f0_2; float f0_3;
-    float f1_0; float f1_1; float f1_2; float f1_3;
-    float f2_0; float f2_1; float f2_2; float f2_3;
-    float f3_0; float f3_1; float f3_2; float f3_3;
+struct object_params_t {
+    XMFLOAT3 position;
+    XMFLOAT3 size { 1.0f, 1.0f, 1.0f };
+    XMFLOAT3 rotation;
 };
+
+void MakeWorld(const object_params_t& op, XMFLOAT4X4& mat);
 
 class FreeCamera {
 public:
-    struct object_params_t {
-        XMFLOAT3 position;
-        XMFLOAT3 size { 1.0f, 1.0f, 1.0f };
-        XMFLOAT3 rotation;
-    };
+
 private:
     XMFLOAT3 camera_pos_;
     XMFLOAT3 up_direction_ { 0.0f, 1.0f, 0.0f };
     XMMATRIX projection_;
-    float speed_ { 0.5f };
-    float sensitivity_ { 0.005f };
+    float speed_ { 2.0f };
+    float sensitivity_ { 0.002f };
     HWND hwnd_;
     bool is_focus_;
     float yaw_;
@@ -32,6 +28,10 @@ public:
 
     XMFLOAT3& GetCameraPos() {
         return camera_pos_;
+    }
+
+    XMFLOAT4 GetCameraPos4() {
+        return { camera_pos_.x, camera_pos_.y, camera_pos_.z, 0.0f };
     }
 
     float& GetYaw() {
@@ -62,7 +62,7 @@ public:
         return is_focus_;
     }
 
-    void MakeWVP(const object_params_t& op, float4x4& mat);
+    void MakeViewAndProjection(XMFLOAT4X4& mat);
 };
 
 class KMInput {

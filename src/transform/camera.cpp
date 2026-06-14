@@ -1,23 +1,27 @@
 #include <transform/camera.h>
 
+void MakeWorld(const object_params_t& op, XMFLOAT4X4& mat) {
+    XMMATRIX S = XMMatrixScaling(op.size.x, op.size.y, op.size.z);
+    XMMATRIX R = XMMatrixRotationX(op.rotation.x) * XMMatrixRotationY(op.rotation.y) * XMMatrixRotationZ(op.rotation.z);
+    XMMATRIX T = XMMatrixTranslation(op.position.x, op.position.y, op.position.z);
+    XMMATRIX world = S * R* T;
+    XMStoreFloat4x4(&mat, world);
+}
+
 FreeCamera::FreeCamera(HWND window, uint64_t width, uint64_t height, uint16_t fov_angle, float near_z, float far_z) : hwnd_(window), camera_pos_{ 0.0f, 2.0f, -2.0f }, yaw_(0.0f) , pitch_(0.0f), projection_() {
     float r_fov = (static_cast<float>(fov_angle) / 180.0f) * XM_PI;
     float aspect = static_cast<float>(width) / static_cast<float>(height);
     projection_ = XMMatrixPerspectiveFovLH(r_fov, aspect, near_z, far_z);
 }
 
-void FreeCamera::MakeWVP(const object_params_t& op, float4x4& mat) {
-    XMMATRIX S = XMMatrixScaling(op.size.x, op.size.y, op.size.z);
-    XMMATRIX R = XMMatrixRotationX(op.rotation.x) * XMMatrixRotationY(op.rotation.y) * XMMatrixRotationZ(op.rotation.z);
-    XMMATRIX T = XMMatrixTranslation(op.position.x, op.position.y, op.position.z);
-    XMMATRIX world = S * R* T;
+void FreeCamera::MakeViewAndProjection(XMFLOAT4X4& mat) {
     XMVECTOR eye = XMLoadFloat3(&camera_pos_);
     XMFLOAT3 focus_pos = GetFocusPos();
     XMVECTOR focus = XMVectorAdd(eye, XMLoadFloat3(&focus_pos));
     XMVECTOR up = XMLoadFloat3(&up_direction_);
     XMMATRIX view = XMMatrixLookAtLH(eye, focus, up);
-    XMMATRIX wvp = world * view * projection_;
-    XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(&mat), wvp);
+    XMMATRIX vp = view * projection_;
+    XMStoreFloat4x4(&mat, vp);
 }
 
 KMInput::KMInput(HWND hwnd, const keyboard_control_key_mappings_t& mappings) : hwnd_(hwnd), key_mappings_(mappings) {

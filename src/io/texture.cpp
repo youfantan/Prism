@@ -1,10 +1,9 @@
 #include <io/texture.h>
+#include <mlog.h>
 
-#include "mlog.h"
+#include <jpegturbo/turbojpeg.h>
 
-TextureLoader::TextureLoader(const std::string& prefix) : prefix_(prefix)
-{
-}
+TextureLoader::TextureLoader(std::string_view prefix) : prefix_(prefix) {}
 
 std::optional<TextureLoader::texture_in_memory_t> TextureLoader::LoadTextureIntoMemory(const std::string& tex_name)
 {

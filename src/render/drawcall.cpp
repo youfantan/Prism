@@ -1,5 +1,7 @@
 #include <render/drawcall.h>
+#include <render/framework.h>
 #include <mlog.h>
+
 Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, const DrawcallResource& resource) : device_(device), heap_(heap), queue_(queue), waitable_(queue.GetRenderFence(), 0) {
     D3D12_ROOT_PARAMETER rps[2] {};
     rps[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -41,16 +43,21 @@ Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHea
 }
 
 void Drawcall::operator()(RenderContext& ctx, Resource<ResourceType::ConstBuffer>& mapping, Resource<ResourceType::VertexBuffer>& vb, Resource<ResourceType::IndexBuffer>& ib) {
-    ctx.AddRenderRecord(this, [&](ComPtr<ID3D12GraphicsCommandList>& list) {
-            list->SetPipelineState(pso_.Get());
-            list->SetGraphicsRootSignature(sign_.Get());
-            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            list->SetGraphicsRootConstantBufferView(0, mapping.GetComPtr()->GetGPUVirtualAddress());
-            ID3D12DescriptorHeap* heaps[] = {heap_.GetComPtr().Get()};
-            list->SetDescriptorHeaps(1, heaps);
-            list->SetGraphicsRootDescriptorTable(1, heap_.GetComPtr()->GetGPUDescriptorHandleForHeapStart());
-            list->IASetVertexBuffers(0, 1, &vb.GetView());
-            list->IASetIndexBuffer(&ib.GetView());
-            list->DrawIndexedInstanced(ib.GetView().SizeInBytes / sizeof(uint32_t), 1, 0, 0, 0);
-        });
+    ctx.AddRenderRecord(this, [&](auto& list) {
+        list->SetPipelineState(pso_.Get());
+        list->SetGraphicsRootSignature(sign_.Get());
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->SetGraphicsRootConstantBufferView(0, mapping.GetComPtr()->GetGPUVirtualAddress());
+        ID3D12DescriptorHeap* heaps[] = {heap_.GetComPtr().Get()};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetGraphicsRootDescriptorTable(1, heap_.GetComPtr()->GetGPUDescriptorHandleForHeapStart());
+        list->IASetVertexBuffers(0, 1, &vb.GetView());
+        list->IASetIndexBuffer(&ib.GetView());
+        list->DrawIndexedInstanced(ib.GetView().SizeInBytes / sizeof(uint32_t), 1, 0, 0, 0);
+    },
+    [&](auto& fence, auto value) {
+        mapping.GetWaitable() = Waitable(fence, value);
+        vb.GetWaitable() = Waitable(fence, value);
+        ib.GetWaitable() = Waitable(fence, value);
+    });
 }

@@ -66,6 +66,7 @@ add_executable(PrismRenderer
         src/render/sync.cpp
         src/render/resource.cpp
         src/render/drawcall.cpp
+        include/transform/helper.h
 )
 target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler turbojpeg)
 add_dependencies(PrismRenderer copy_dirs copy_binaries)

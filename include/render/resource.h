@@ -2,9 +2,10 @@
 
 #include <base.h>
 #include <mlog.h>
-#include <io/texture.h>
 #include <utils.h>
 #include <render/queue.h>
+#include <io/texture.h>
+
 #include <unordered_map>
 #include <optional>
 
@@ -148,7 +149,12 @@ public:
 
     ~Resource() {
         if constexpr (RT == ResourceType::ConstBuffer) {
-            resource_->Unmap(0, nullptr);
+            if (mapping_ptr_ != nullptr) {
+                resource_->Unmap(0, nullptr);
+            }
+        }
+        if (resource_ != nullptr) {
+            waitable_.CPUWait();
         }
     }
 };
