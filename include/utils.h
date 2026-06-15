@@ -136,11 +136,102 @@ public:
     }
 };
 
-template<typename>
-inline constexpr bool lazy_assert_false = false;
+template<typename T, size_t E>
+class DynamicArray {
+private:
+    char* ptr_;
+    size_t len_;
+    size_t capacity_;
+
+    static size_t GetMinAligned(size_t n) {
+        return n % E == 0 ? n : (n / E + 1) * E;
+    }
+public:
+    DynamicArray() {
+        ptr_ = static_cast<char*>(malloc(sizeof(T) * E));
+        len_ = 0;
+        capacity_ = E;
+    }
+
+    DynamicArray(const DynamicArray& da) {
+        ptr_ = static_cast<char*>(malloc(sizeof(T) * da.capacity_));
+        len_ = da.len_;
+        capacity_ = da.capacity_;
+        memcpy(ptr_, da.ptr_, len_);
+    }
+
+    DynamicArray(DynamicArray&& da) noexcept : ptr_(da.ptr_), len_(da.len_), capacity_(da.capacity_) {
+        da.ptr_ = nullptr;
+        da.len_ = 0;
+        da.capacity_ = 0;
+    }
+
+    DynamicArray& operator=(const DynamicArray& da) {
+        if (&da == this) return *this;
+        ptr_ = static_cast<char*>(malloc(sizeof(T) * da.capacity_));
+        len_ = da.len_;
+        capacity_ = da.capacity_;
+        memcpy(ptr_, da.ptr_, len_);
+        return *this;
+    }
+
+    DynamicArray& operator=(DynamicArray&& da) noexcept{
+        ptr_ = da.ptr_;
+        len_ = da.len_;
+        capacity_ = da.capacity_;
+        da.ptr_ = nullptr;
+        da.len_ = 0;
+        da.capacity_ = 0;
+        return *this;
+    }
+
+    bool PushAt(size_t i, const T& t) {
+        if (i > capacity_) {
+            if (!Expand(GetMinAligned(i) * sizeof(T))) return false;
+        }
+        memcpy(&ptr_[i * sizeof(T)], &t, sizeof(T));
+        return true;
+    }
+
+    bool PushBack(const T& t) {
+        bool result = PushAt(len_, t);
+        ++len_;
+        return result;
+    }
+
+    std::optional<T*> Get(size_t i) {
+        if (i >= len_) {
+            return std::nullopt;
+        }
+        return reinterpret_cast<T*>(&ptr_[i * sizeof(T)]);
+    }
+
+    bool Expand(size_t to) {
+        void* ptr = realloc(ptr_, to);
+        if (ptr == nullptr) {
+            return false;
+        }
+        ptr_ = static_cast<char*>(ptr);
+        capacity_ = to / sizeof(T);
+        return true;
+    }
+
+    uint64_t GetLength() {
+        return len_;
+    }
+
+    ~DynamicArray() {
+        if (ptr_ != nullptr) {
+            free(ptr_);
+            ptr_ = nullptr;
+            len_ = 0;
+            capacity_ = 0;
+        }
+    }
+};
 
 template<typename T, size_t N>
-constexpr size_t count_of(T(&)[N]) {
+constexpr size_t CountOf(T(&)[N]) {
     return N;
 }
 

@@ -7,8 +7,6 @@
 #include <vector>
 
 class UploadBuffer {
-    template<typename Allocator>
-    requires is_allocator<Allocator>
     friend class ResourceManager;
 private:
     uint64_t fence_value_;
@@ -99,7 +97,7 @@ private:
 public:
     RenderQueue(ComPtr<ID3D12Device>& device, uint32_t n);
 
-    ComPtr<ID3D12GraphicsCommandList>& PrepareRenderQueue(uint32_t index);
+    ComPtr<ID3D12GraphicsCommandList> PrepareRenderQueue(uint32_t index);
     uint64_t CommitRenderQueue(uint32_t index);
 
     Fence& GetRenderFence() {
@@ -135,25 +133,9 @@ public:
         return fence_;
     }
 
-    template<ResourceType RT>
-    void CopyBuffer(Resource<RT>& dest, UploadBuffer& src) {
-        auto& worker = AssignWorker();
-        worker.waitable.CPUWait();
-        worker.alloc->Reset();
-        worker.list->Reset(worker.alloc.Get(), nullptr);
-        worker.list->CopyResource(dest.GetComPtr().Get(), src.GetComPtr().Get());
-        worker.list->Close();
-        ID3D12CommandList* lists[] = { worker.list.Get() };
-        dest.GetWaitable().GPUWait(queue_);
-        queue_->ExecuteCommandLists(1, lists);
-        worker.waitable = fence_.AllocateWaitable();
-        dest.GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
-        fence_.GPUSync(worker.waitable, queue_);
-        src.GetFenceValue() = worker.waitable.GetFenceValue();
-        upload_buffers_.push_back(std::move(src));
-    }
+    void CopyBuffer(Resource* dest, UploadBuffer& src);
 
-    void CopyTexture(Resource<ResourceType::Texture>& dest, UploadBuffer& src, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint);
+    void CopyTexture(Resource* dest, UploadBuffer& src, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint);
 
     ComPtr<ID3D12CommandQueue>& GetComPtr() {
         return queue_;

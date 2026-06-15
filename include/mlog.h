@@ -1,6 +1,7 @@
 #pragma once
 
 #include <format>
+#include <iostream>
 #include <source_location>
 #include <string>
 #include <chrono>
@@ -62,7 +63,7 @@ void log(std::source_location location, const std::string& format, Args&&... arg
 
     auto now = std::chrono::system_clock::now();
     std::string log_string = std::vformat(format, std::make_format_args(args...));
-    std::string leading_string = std::format("[{}][{}][{}:{}] ", prefix, get_formatted_time(now), location.file_name(), location.column());
+    std::string leading_string = std::format("[{}][{}][{}:{}] ", prefix, get_formatted_time(now), location.file_name(), location.line());
     std::string console_leading_string = color + leading_string;
     std::string console_end_string = "\033[37m\n";
     fwrite(console_leading_string.c_str(), 1, console_leading_string.size(), mlog_ctx.logstdout);
@@ -71,6 +72,8 @@ void log(std::source_location location, const std::string& format, Args&&... arg
     fwrite(leading_string.c_str(), 1, leading_string.size(), mlog_ctx.logfile);
     fwrite(log_string.c_str(), 1, log_string.size(), mlog_ctx.logfile);
     fwrite("\n", 1, 1, mlog_ctx.logfile);
+    fflush(mlog_ctx.logstdout);
+    fflush(mlog_ctx.logfile);
 }
 
 inline int mlog_sth_init(const mlog_sth_init_t& init)

@@ -43,29 +43,33 @@ RenderContext::RenderContext(Device& device, RenderQueue& rq, const dx_init_t& i
         CHECKHR(sc.As(&swapchain_));
 }
 
-void RenderContext::Render(render_callback_t&& rcb) {
+void RenderContext::RecordRenderList(render_callback_t&& rc) {
+        records_.push_back(rc(record_list_));
+}
+
+void RenderContext::Render(std::function<void()>&& callback) {
         records_.clear();
-        rcb();
         auto& fr = GetCurrentFrameResource();
-        auto& list = render_queue_.PrepareRenderQueue(swapchain_->GetCurrentBackBufferIndex());
+        auto list = render_queue_.PrepareRenderQueue(swapchain_->GetCurrentBackBufferIndex());
+        record_list_ = list;
         D3D12_VIEWPORT viewport = { 0.0f, 0.0f, (float)init_.width, (float)init_.height, 0.0f, 1.0f };
         D3D12_RECT scissor_rect = { 0, 0, static_cast<LONG>(init_.width), static_cast<LONG>(init_.height) };
-        auto rtv = fr.back_buffer.GetView();
-        auto dsv = fr.depth_buffer.GetView();
+        auto rtv = fr.rtv_handle;
+        auto dsv = fr.dsv_handle;
         list->RSSetViewports(1, &viewport);
         list->RSSetScissorRects(1, &scissor_rect);
-        fr.back_buffer.Transition(D3D12_RESOURCE_STATE_RENDER_TARGET, list);
+        fr.back_buffer->Transition(D3D12_RESOURCE_STATE_RENDER_TARGET, list);
         list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
         list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         list->ClearRenderTargetView(rtv, init_.rt_clear_color, 0, nullptr);
-        for (const auto& [drawcall, draw, sync] : records_) {
-                draw(list);
-        }
-        fr.back_buffer.Transition(D3D12_RESOURCE_STATE_PRESENT, list);
+        callback();
+        fr.back_buffer->Transition(D3D12_RESOURCE_STATE_PRESENT, list);
         uint64_t fence_value = render_queue_.CommitRenderQueue(swapchain_->GetCurrentBackBufferIndex());
-        for (const auto& [drawcall, record, sync] : records_) {
-                drawcall->waitable_ = Waitable(render_queue_.GetRenderFence(), fence_value);
-                sync(render_queue_.GetRenderFence(), fence_value);
+        for (auto& record : records_) {
+                record.drawcall->waitable_ = Waitable(render_queue_.GetRenderFence(), fence_value);
+                for (auto& res : record.resources) {
+                        res->GetWaitable() = Waitable(render_queue_.GetRenderFence(), fence_value);
+                }
         }
         swapchain_->Present(1, 0);
 }

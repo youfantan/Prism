@@ -70,6 +70,3 @@ add_executable(PrismRenderer
 )
 target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler turbojpeg)
 add_dependencies(PrismRenderer copy_dirs copy_binaries)
-set_target_properties(PrismRenderer PROPERTIES
-        WIN32_EXECUTABLE TRUE
-)

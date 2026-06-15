@@ -19,14 +19,24 @@ using namespace DirectX;
 class Device;
 
 enum class ResourceType {
-    RenderTarget, // RTV
-    DepthBuffer, // DSV
-    ConstBuffer, // CBV
-    ShaderResource, // SRV
-    VertexBuffer, // VBV
-    IndexBuffer, // IBV
-    Texture, // SRV
-    UnorderedAccess, // UAV
+    RenderTarget,
+    DepthBuffer,
+    ConstBuffer,
+    ShaderResource,
+    VertexBuffer,
+    IndexBuffer,
+    Texture,
+    UnorderedAccess,
+};
+
+enum class ResourceViewType {
+    RTV,
+    DSV,
+    SRV,
+    CBV,
+    UAV,
+    VBV,
+    IBV,
 };
 
 enum class MSAAType : uint32_t {
@@ -47,25 +57,19 @@ inline uint32_t GetSampleCount(MSAAType type) {
     }
 }
 
-template<ResourceType RT>
-class Resource;
-
-class UploadBuffer;
-
-template<typename A>
-concept is_allocator = requires (A a, D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES state, D3D12_CLEAR_VALUE* optclr)
-{
-    { a.CreateLocalResource(desc, state, optclr) } -> std::same_as<ComPtr<ID3D12Resource>>;
-    { a.CreateLocalResource(desc) } -> std::same_as<ComPtr<ID3D12Resource>>;
-    { a.CreateRemoteResource(desc, state, optclr) } -> std::same_as<ComPtr<ID3D12Resource>>;
-    { a.CreateRemoteResource(desc) } -> std::same_as<ComPtr<ID3D12Resource>>;
-
+class DXAllocator {
+protected:
+    ComPtr<ID3D12Device> device_;
+public:
+    DXAllocator(ComPtr<ID3D12Device> device) : device_(device) {}
+    virtual ComPtr<ID3D12Resource> CreateLocalResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) = 0;
+    virtual ComPtr<ID3D12Resource> CreateRemoteResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) = 0;
+    virtual void FreeResource(ComPtr<ID3D12Resource> resource) = 0;
 };
 
-template<typename Allocator>
-requires is_allocator<Allocator>
+class Resource;
+class UploadBuffer;
 class ResourceManager;
-
 class RenderContext;
 class Drawcall;
 

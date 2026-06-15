@@ -62,12 +62,13 @@ private:
     ComPtr<ID3D12Device> device_;
     BindlessHeap& heap_;
     RenderQueue& queue_;
+    ResourceManager& res_mgr_;
     ComPtr<ID3D12PipelineState> pso_;
     ComPtr<ID3D12RootSignature> sign_;
     Waitable waitable_;
 public:
-    Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, const DrawcallResource& resource);
-    void operator()(RenderContext& ctx, Resource<ResourceType::ConstBuffer>& mapping, Resource<ResourceType::VertexBuffer>& vb, Resource<ResourceType::IndexBuffer>& ib);
+    Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, ResourceManager& res_mgr, const DrawcallResource& resource);
+    void operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, std::string& ib_name);
     ~Drawcall() {
         waitable_.CPUWait();
     }

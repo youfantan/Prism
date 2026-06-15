@@ -2,7 +2,7 @@
 #include <render/framework.h>
 #include <mlog.h>
 
-Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, const DrawcallResource& resource) : device_(device), heap_(heap), queue_(queue), waitable_(queue.GetRenderFence(), 0) {
+Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, ResourceManager& res_mgr, const DrawcallResource& resource) : device_(device), heap_(heap), queue_(queue), res_mgr_(res_mgr), waitable_(queue.GetRenderFence(), 0) {
     D3D12_ROOT_PARAMETER rps[2] {};
     rps[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -42,22 +42,26 @@ Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHea
     device_->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pso_));
 }
 
-void Drawcall::operator()(RenderContext& ctx, Resource<ResourceType::ConstBuffer>& mapping, Resource<ResourceType::VertexBuffer>& vb, Resource<ResourceType::IndexBuffer>& ib) {
-    ctx.AddRenderRecord(this, [&](auto& list) {
+void Drawcall::operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, std::string& ib_name) {
+    ctx.RecordRenderList([&](ComPtr<ID3D12GraphicsCommandList> list) -> RenderContext::record_t {
+        auto* cb = res_mgr_.GetMap().QueryResource<ConstantBuffer>(presets_cb_name).value();
+        auto* vb = res_mgr_.GetMap().QueryResource<VertexBuffer>(vb_name).value();
+        auto* ib = res_mgr_.GetMap().QueryResource<IndexBuffer>(ib_name).value();
+        auto vbv = res_mgr_.GetMap().QueryResourceView(vb_name, "default_vb_view").value()->data.vb_view;
+        auto ibv = res_mgr_.GetMap().QueryResourceView(ib_name, "default_ib_view").value()->data.ib_view;
         list->SetPipelineState(pso_.Get());
         list->SetGraphicsRootSignature(sign_.Get());
         list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        list->SetGraphicsRootConstantBufferView(0, mapping.GetComPtr()->GetGPUVirtualAddress());
+        list->SetGraphicsRootConstantBufferView(0, cb->GetComPtr()->GetGPUVirtualAddress());
         ID3D12DescriptorHeap* heaps[] = {heap_.GetComPtr().Get()};
         list->SetDescriptorHeaps(1, heaps);
         list->SetGraphicsRootDescriptorTable(1, heap_.GetComPtr()->GetGPUDescriptorHandleForHeapStart());
-        list->IASetVertexBuffers(0, 1, &vb.GetView());
-        list->IASetIndexBuffer(&ib.GetView());
-        list->DrawIndexedInstanced(ib.GetView().SizeInBytes / sizeof(uint32_t), 1, 0, 0, 0);
-    },
-    [&](auto& fence, auto value) {
-        mapping.GetWaitable() = Waitable(fence, value);
-        vb.GetWaitable() = Waitable(fence, value);
-        ib.GetWaitable() = Waitable(fence, value);
+        list->IASetVertexBuffers(0, 1, &vbv);
+        list->IASetIndexBuffer(&ibv);
+        list->DrawIndexedInstanced(ibv.SizeInBytes / sizeof(uint32_t), 1, 0, 0, 0);
+        return {
+            .drawcall = this,
+            .resources = { cb, vb, ib }
+        };
     });
 }

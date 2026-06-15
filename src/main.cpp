@@ -43,45 +43,13 @@ void RunLoop(std::function<void()> loop)
     }
 }
 
-// Vertex v_LightCube[8] = {
-//     {{-1.0f, -1.0f, -1.0f}, {0,0}, {0,0,0}},
-//     {{ 1.0f, -1.0f, -1.0f}, {0,0}, {0,0,0}},
-//     {{ 1.0f, -1.0f,  1.0f}, {0,0}, {0,0,0}},
-//     {{-1.0f, -1.0f,  1.0f}, {0,0}, {0,0,0}},
-//     {{-1.0f,  1.0f, -1.0f}, {0,0}, {0,0,0}},
-//     {{ 1.0f,  1.0f, -1.0f}, {0,0}, {0,0,0}},
-//     {{ 1.0f,  1.0f,  1.0f}, {0,0}, {0,0,0}},
-//     {{-1.0f,  1.0f,  1.0f}, {0,0}, {0,0,0}},
-// };
-//
-// uint32_t i_LightCube[36] = {
-//     2, 6, 7,
-//     2, 7, 3,
-//
-//     0, 4, 5,
-//     0, 5, 1,
-//
-//     4, 7, 6,
-//     4, 6, 5,
-//
-//     0, 3, 2,
-//     0, 2, 1,
-//
-//     1, 5, 6,
-//     1, 6, 2,
-//
-//     0, 7, 4,
-//     0, 3, 7,
-// };
-
 FreeCamera* frc = nullptr;
 KMInput* kmi;
 
 DXFramework<DXDefaultAllocator>* p_dxfw;
 
-int WINAPI wWinMain(HINSTANCE h, HINSTANCE p, PWSTR cmdline, int show) {
+int main() {
 #ifndef NDEBUG
-    mlog_enable_win32_console();
     mlog_enable_win32_vansi();
 #endif
 
@@ -90,8 +58,7 @@ int WINAPI wWinMain(HINSTANCE h, HINSTANCE p, PWSTR cmdline, int show) {
         .log_file_name = "log.txt"
     };
     mlog_sth_init(mlog_init);
-    HWND hwnd = InitWin32Window(h, show);
-
+    HWND hwnd = InitWin32Window(nullptr, true);
     FreeCamera camera(hwnd, WIDTH, HEIGHT, 45);
     frc = &camera;
     KMInput::keyboard_control_key_mappings_t kmapping {
@@ -117,17 +84,17 @@ int WINAPI wWinMain(HINSTANCE h, HINSTANCE p, PWSTR cmdline, int show) {
         .srv_count = 16,
         .uav_count = 16,
     };
-    DXFramework dxfw(init);
+    DXFramework<DXDefaultAllocator> dxfw(init);
     p_dxfw = &dxfw;
 
     auto& resmgr = dxfw.GetResourceManager();
     // Load and bind textures
     auto metal_img = dxfw.GetTextureLoader().LoadTextureIntoMemory("metal");
     auto stone_img = dxfw.GetTextureLoader().LoadTextureIntoMemory("stone");
-    auto metal_tex = resmgr.CreateTexture(metal_img.value());
-    auto stone_tex = resmgr.CreateTexture(stone_img.value());
-    dxfw.GetBindlessHeap().BindShaderResource("metal", metal_tex);
-    dxfw.GetBindlessHeap().BindShaderResource("stone", stone_tex);
+    auto metal_tex = resmgr.CreateTexture("tex_metal", metal_img.value());
+    auto stone_tex = resmgr.CreateTexture("tex_stone", stone_img.value());
+    dxfw.GetBindlessHeap().BindShaderResource("tex_metal");
+    dxfw.GetBindlessHeap().BindShaderResource("tex_stone");
 
     using ObjectDrawcall = decltype(dxfw)::ObjectDrawcall;
 
@@ -169,7 +136,7 @@ int WINAPI wWinMain(HINSTANCE h, HINSTANCE p, PWSTR cmdline, int show) {
         // Back
         13, 14, 15
     };
-    for (int i = 0; i < count_of(i_Pyramid) / 3; ++i) {
+    for (int i = 0; i < CountOf(i_Pyramid) / 3; ++i) {
         uint32_t a = i_Pyramid[i * 3 + 0];
         uint32_t b = i_Pyramid[i * 3 + 1];
         uint32_t c = i_Pyramid[i * 3 + 2];
@@ -181,17 +148,17 @@ int WINAPI wWinMain(HINSTANCE h, HINSTANCE p, PWSTR cmdline, int show) {
     }
 
     // Create and bind const buffers
-    auto scene = resmgr.CreateConstantBuffer<ObjectDrawcall::Scene>();
-    auto* p_Scene = scene.GetMapping<ObjectDrawcall::Scene>();
+    auto scene = resmgr.CreateConstantBuffer<ObjectDrawcall::Scene>("scene");
+    auto* p_Scene = scene.value()->GetMapping<ObjectDrawcall::Scene>();
     p_Scene->dotlight_count = 1;
     p_Scene->dotlight_positions[0] = { 4.0f, 2.0f, 0.0f, 0.0f };
     p_Scene->dotlight_colors[0] = { 0.5f, 0.4f, 0.4f, 0.0f };
     p_Scene->camera_position = camera.GetCameraPos4();
     camera.MakeViewAndProjection(p_Scene->vp);
-    dxfw.GetBindlessHeap().BindConstantBuffer("scene", scene);
+    dxfw.GetBindlessHeap().BindConstantBuffer("scene");
 
     // Create Objects
-    ObjectDrawcall pyramid(v_Pyramid, count_of(v_Pyramid), i_Pyramid, count_of(i_Pyramid), dxfw, "stone");
+    ObjectDrawcall pyramid("pyramid", v_Pyramid, CountOf(v_Pyramid), i_Pyramid, CountOf(i_Pyramid), &dxfw, "tex_stone");
 
     PerformanceCounter pc;
     RunLoop([&] {

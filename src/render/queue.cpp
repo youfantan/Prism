@@ -36,7 +36,7 @@ void CopyQueue::DeferredRelease(bool final_release) {
     }
 }
 
-ComPtr<ID3D12GraphicsCommandList>& RenderQueue::PrepareRenderQueue(uint32_t index) {
+ComPtr<ID3D12GraphicsCommandList> RenderQueue::PrepareRenderQueue(uint32_t index) {
     auto& worker = workers_[index];
     worker.waitable.CPUWait();
     worker.alloc->Reset();
@@ -86,13 +86,30 @@ CopyQueue::CopyQueue(ComPtr<ID3D12Device>& device, uint64_t n) : device_(device)
     }
 }
 
-void CopyQueue::CopyTexture(Resource<ResourceType::Texture>& dest, UploadBuffer& src, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
+void CopyQueue::CopyBuffer(Resource* dest, UploadBuffer& src) {
+    auto& worker = AssignWorker();
+    worker.waitable.CPUWait();
+    worker.alloc->Reset();
+    worker.list->Reset(worker.alloc.Get(), nullptr);
+    worker.list->CopyResource(dest->GetComPtr().Get(), src.GetComPtr().Get());
+    worker.list->Close();
+    ID3D12CommandList* lists[] = { worker.list.Get() };
+    dest->GetWaitable().GPUWait(queue_);
+    queue_->ExecuteCommandLists(1, lists);
+    worker.waitable = fence_.AllocateWaitable();
+    dest->GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
+    fence_.GPUSync(worker.waitable, queue_);
+    src.GetFenceValue() = worker.waitable.GetFenceValue();
+    upload_buffers_.push_back(std::move(src));
+}
+
+void CopyQueue::CopyTexture(Resource* dest, UploadBuffer& src, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
     D3D12_TEXTURE_COPY_LOCATION src_loc {};
     src_loc.pResource = src.GetComPtr().Get();
     src_loc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     src_loc.PlacedFootprint = footprint;
     D3D12_TEXTURE_COPY_LOCATION dest_loc {};
-    dest_loc.pResource = dest.GetComPtr().Get();
+    dest_loc.pResource = dest->GetComPtr().Get();
     dest_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     dest_loc.SubresourceIndex = 0;
     auto& worker = AssignWorker();
@@ -102,10 +119,10 @@ void CopyQueue::CopyTexture(Resource<ResourceType::Texture>& dest, UploadBuffer&
     worker.list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
     worker.list->Close();
     ID3D12CommandList* lists[] = { worker.list.Get() };
-    dest.GetWaitable().GPUWait(queue_);
+    dest->GetWaitable().GPUWait(queue_);
     queue_->ExecuteCommandLists(1, lists);
     worker.waitable = fence_.AllocateWaitable();
-    dest.GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
+    dest->GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
     fence_.GPUSync(worker.waitable, queue_);
     upload_buffers_.push_back(std::move(src));
 }
