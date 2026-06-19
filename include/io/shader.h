@@ -9,8 +9,7 @@
 class ShaderLoader
 {
 public:
-    using shader_in_memory_t = struct
-    {
+    using shader_in_memory_t = struct {
         ComPtr<ID3DBlob> blob;
         ShaderType type;
     };
@@ -45,7 +44,7 @@ public:
     shader_in_memory_t LoadShaderIntoMemory(std::string_view shader_name, ShaderType type) {
         std::string shader_path = std::format("{}/{}.{}.hlsl", prefix_, shader_name, GetShaderTypeExtension(type));
         LDEBUG("Loading shader {}({}) into memory", shader_name, shader_path);
-        std::string shader_src = ReadFileIntoString(shader_path);
+        std::string shader_src = ReadFileIntoString(shader_path).value();
         ComPtr<ID3DBlob> binary, error;
         HRESULT r = D3DCompile(shader_src.data(), shader_src.size(), nullptr, nullptr, nullptr, "main", GetShaderTypeTargetString(type).c_str(), 0, 0, &binary, &error);
         if (!SUCCEEDED(r)) {

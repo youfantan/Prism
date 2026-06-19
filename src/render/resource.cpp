@@ -28,21 +28,15 @@ BindlessHeap::BindlessHeap(ComPtr<ID3D12Device>& device, ResourceManager& res_mg
     ranges_[2].OffsetInDescriptorsFromTableStart = srv_scope_ + cbv_scope_;
 }
 
-std::optional<std::string> BindlessHeap::BindShaderResource(const std::string& name) {
+std::optional<std::string> BindlessHeap::BindTexture(const std::string& name) {
     int32_t index = AssignIndex(Type::SRV);
     if (index == -1) return std::nullopt;
     D3D12_SHADER_RESOURCE_VIEW_DESC desc {};
     auto query = res_mgr_.GetMap().QueryResource<Texture>(name);
     if (!query.has_value()) return std::nullopt;
     desc.Format = query.value()->GetComPtr()->GetDesc().Format;
-    if (query.value()->GetComPtr()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-        desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    } else if (query.value()->GetComPtr()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) {
-        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        desc.Texture2D.MipLevels = 1;
-    } else {
-        desc.ViewDimension = D3D12_SRV_DIMENSION_UNKNOWN;
-    }
+    desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    desc.Texture2D.MipLevels = 1;
     desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUHandle(index);
     device_->CreateShaderResourceView(query.value()->GetComPtr().Get(), &desc, handle);
@@ -50,7 +44,28 @@ std::optional<std::string> BindlessHeap::BindShaderResource(const std::string& n
     ResourceView rv {};
     rv.type = ResourceViewType::SRV;
     rv.data.handle = handle;
-    const std::string default_view_name("bindless_srv");
+    std::string default_view_name("bindless_srv");
+    res_mgr_.GetMap().BindResourceView(name, default_view_name, rv);
+    return default_view_name;
+}
+
+std::optional<std::string> BindlessHeap::BindStructuredBuffer(const std::string& name) {
+    int32_t index = AssignIndex(Type::SRV);
+    if (index == -1) return std::nullopt;
+    D3D12_SHADER_RESOURCE_VIEW_DESC desc {};
+    auto query = res_mgr_.GetMap().QueryResource<StructuredBuffer>(name);
+    if (!query.has_value()) return std::nullopt;
+    desc.Format = query.value()->GetComPtr()->GetDesc().Format;
+    desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    desc.Texture2D.MipLevels = 1;
+    desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUHandle(index);
+    device_->CreateShaderResourceView(query.value()->GetComPtr().Get(), &desc, handle);
+    heap_mapping_[name] = index;
+    ResourceView rv {};
+    rv.type = ResourceViewType::SRV;
+    rv.data.handle = handle;
+    std::string default_view_name("bindless_srv");
     res_mgr_.GetMap().BindResourceView(name, default_view_name, rv);
     return default_view_name;
 }
@@ -68,7 +83,7 @@ std::optional<std::string> BindlessHeap::BindConstantBuffer(const std::string& n
     ResourceView rv {};
     rv.type = ResourceViewType::CBV;
     rv.data.handle = handle;
-    const std::string default_view_name("bindless_cbv");
+    std::string default_view_name("bindless_cbv");
     res_mgr_.GetMap().BindResourceView(name, default_view_name, rv);
     heap_mapping_[name] = index;
     return default_view_name;

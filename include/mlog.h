@@ -1,7 +1,6 @@
 #pragma once
 
 #include <format>
-#include <iostream>
 #include <source_location>
 #include <string>
 #include <chrono>
@@ -94,8 +93,7 @@ inline void mlog_sth_close()
 }
 
 #ifdef WIN32
-#include <Windows.h>
-#include <io.h>
+#include <windows.h>
 
 inline bool mlog_enable_win32_console() {
     if (!AllocConsole()) return false;

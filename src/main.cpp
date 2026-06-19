@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include "mlog.h"
+#include "io/font.h"
 #include "io/shader.h"
 #include "io/texture.h"
 #include "render/framework.h"
@@ -55,9 +56,11 @@ int main() {
 
     mlog_sth_init_t mlog_init {
         .log_directory = "logs",
-        .log_file_name = "log.txt"
+        .log_file_name = "logs.txt"
     };
     mlog_sth_init(mlog_init);
+    FontTexGenerator loader("assets", "UbuntuMono");
+    loader.GenerateFontTexAndUV(128);
     HWND hwnd = InitWin32Window(nullptr, true);
     FreeCamera camera(hwnd, WIDTH, HEIGHT, 45);
     frc = &camera;
@@ -93,8 +96,8 @@ int main() {
     auto stone_img = dxfw.GetTextureLoader().LoadTextureIntoMemory("stone");
     auto metal_tex = resmgr.CreateTexture("tex_metal", metal_img.value());
     auto stone_tex = resmgr.CreateTexture("tex_stone", stone_img.value());
-    dxfw.GetBindlessHeap().BindShaderResource("tex_metal");
-    dxfw.GetBindlessHeap().BindShaderResource("tex_stone");
+    dxfw.GetBindlessHeap().BindTexture("tex_metal");
+    dxfw.GetBindlessHeap().BindTexture("tex_stone");
 
     using ObjectDrawcall = decltype(dxfw)::ObjectDrawcall;
 

@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <optional>
 
+#include "io/image.h"
+
 class Resource {
 protected:
     ResourceType type_;
@@ -18,13 +20,10 @@ protected:
     D3D12_RESOURCE_STATES states_;
     DXAllocator* allocator_;
     Resource(ResourceType type, std::string&& name, ComPtr<ID3D12Resource> resource, DXAllocator* allocator, Waitable&& empty, D3D12_RESOURCE_STATES states) : type_(type), name_(std::move(name)), resource_(resource), allocator_(allocator), waitable_(std::move(empty)), states_(states) {
-        auto wname = ConvertStringToWstring(name_.c_str());
-        if (wname.has_value()) {
-            resource_->SetName(wname->data());
-        }
+        resource_->SetName(ConvertStringToWstring(name_.c_str()).c_str());
     }
     Resource(const Resource&) = delete;
-    Resource(Resource&& r) : type_(r.type_), resource_(std::move(r.resource_)), waitable_(std::move(r.waitable_)), states_(r.states_) {
+    Resource(Resource&& r) noexcept : type_(r.type_), resource_(std::move(r.resource_)), waitable_(std::move(r.waitable_)), states_(r.states_), allocator_(r.allocator_) {
 
     }
 public:
@@ -88,7 +87,7 @@ private:
 public:
     constexpr static ResourceType Type = ResourceType::ConstBuffer;
 
-    ConstantBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), resource, allocator, std::move(empty), D3D12_RESOURCE_STATE_COMMON), mapping_(nullptr) {
+    ConstantBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), std::move(resource), allocator, std::move(empty), D3D12_RESOURCE_STATE_COMMON), mapping_(nullptr) {
         resource_->Map(0, nullptr, &mapping_);
     }
     ConstantBuffer(const ConstantBuffer&) = delete;
@@ -108,13 +107,32 @@ public:
     }
 };
 
+class StructuredBuffer : public Resource {
+private:
+    CopyQueue* queue_;
+public:
+    constexpr static ResourceType Type = ResourceType::ConstBuffer;
+
+    StructuredBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), std::move(resource), allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
+
+    }
+    StructuredBuffer(const StructuredBuffer&) = delete;
+    StructuredBuffer(StructuredBuffer&& sb) noexcept : Resource(std::move(*this)), queue_(sb.queue_) {
+        sb.queue_ = nullptr;
+    }
+
+    void CopyToBuffer(UploadBuffer& ub) {
+        queue_->CopyBuffer(this, ub);
+    }
+};
+
 class Texture : public Resource {
 private:
     CopyQueue* queue_;
 public:
     constexpr static ResourceType Type = ResourceType::Texture;
 
-    Texture(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), resource, allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
+    Texture(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), std::move(resource), allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
 
     }
 
@@ -128,7 +146,7 @@ private:
 public:
     constexpr static ResourceType Type = ResourceType::RenderTarget;
 
-    RenderTarget(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), resource, allocator, std::move(empty), D3D12_RESOURCE_STATE_COMMON) {
+    RenderTarget(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), std::move(resource), allocator, std::move(empty), D3D12_RESOURCE_STATE_COMMON) {
 
     }
 };
@@ -138,7 +156,7 @@ private:
 public:
     constexpr static ResourceType Type = ResourceType::DepthBuffer;
 
-    DepthBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), resource, allocator, std::move(empty), D3D12_RESOURCE_STATE_DEPTH_WRITE) {
+    DepthBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& empty) : Resource(Type, std::move(name), std::move(resource), allocator, std::move(empty), D3D12_RESOURCE_STATE_DEPTH_WRITE) {
 
     }
 };
@@ -149,7 +167,7 @@ private:
 public:
     constexpr static ResourceType Type = ResourceType::VertexBuffer;
 
-    VertexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), resource, allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
+    VertexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), std::move(resource), allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
 
     }
 
@@ -164,7 +182,7 @@ private:
 public:
     constexpr static ResourceType Type = ResourceType::IndexBuffer;
 
-    IndexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), resource, allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
+    IndexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource) : Resource(Type, std::move(name), std::move(resource), allocator, Waitable(queue.GetCopyFence(), 0), D3D12_RESOURCE_STATE_COMMON), queue_(&queue) {
 
     }
 
@@ -411,6 +429,33 @@ public:
         return query;
     }
 
+    template<typename S>
+    std::optional<StructuredBuffer*> CreateStructuredBuffer(const std::string& name, const S* data, size_t count) {
+        size_t size = count * sizeof(S);
+        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(size)));
+        D3D12_RESOURCE_DESC desc {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = size;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_UNKNOWN;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        upload_buffer.Write(data, size);
+        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc);
+        if (!map_.CreateResource<StructuredBuffer>(name, copy_queue_, resource)) return std::nullopt;
+        auto query = map_.QueryResource<StructuredBuffer>(name);
+        query.value()->CopyToBuffer(upload_buffer);
+        return query.value();
+    }
+
+    template<typename S>
+    std::optional<StructuredBuffer*> CreateStructuredBuffer(const std::string& name, std::vector<S>& data) {
+        return CreateStructuredBuffer(name, &data[0], data.size());
+    }
+
     template<typename C>
     std::optional<ConstantBuffer*> CreateConstantBuffer(const std::string& name) {
         D3D12_RESOURCE_DESC desc {};
@@ -431,9 +476,9 @@ public:
         return map_.QueryResource<ConstantBuffer>(name);
     }
 
+
     std::optional<Texture*> CreateTexture(const std::string& name, const TextureLoader::texture_in_memory_t& texture) {
         D3D12_RESOURCE_DESC tex_desc {};
-        D3D12_RESOURCE_DESC buf_desc {};
         tex_desc.Width = texture.width;
         tex_desc.Height = texture.height;
         tex_desc.Format = texture.format;
@@ -453,6 +498,38 @@ public:
         uint64_t dest_pitch = footprint.Footprint.RowPitch;
         for (int i = 0; i < rows; ++i) {
             memcpy(dest + i * dest_pitch, texture.data + i * texture.row_pitch, texture.row_pitch);
+        }
+        upload_buffer.GetComPtr()->Unmap(0, nullptr);
+        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(tex_desc);
+        if (!map_.CreateResource<Texture>(name, copy_queue_, resource)) return std::nullopt;
+        auto query = map_.QueryResource<Texture>(name);
+        query.value()->CopyToTexture(upload_buffer, footprint);
+        return query;
+    }
+
+    template<typename ImageFormat>
+    requires is_image_format<ImageFormat>
+    std::optional<Texture*> CreateTextureFromImage(const std::string& name, const Image<ImageFormat>& image) {
+        D3D12_RESOURCE_DESC tex_desc {};
+        tex_desc.Width = image.width;
+        tex_desc.Height = image.height;
+        tex_desc.Format = ImageFormat::DXGIFormat;
+        tex_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        tex_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        tex_desc.MipLevels = 1;
+        tex_desc.DepthOrArraySize = 1;
+        tex_desc.SampleDesc.Count = 1;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+        uint32_t rows;
+        uint64_t upload_size, total_size;
+        device_->GetCopyableFootprints(&tex_desc, 0, 1, 0, &footprint, &rows, &upload_size, &total_size);
+        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(footprint.Footprint.RowPitch * rows)));
+        void* upload_buffer_mapping;
+        CHECKHR(upload_buffer.GetComPtr()->Map(0, nullptr, &upload_buffer_mapping));
+        auto* dest = static_cast<uint8_t *>(upload_buffer_mapping) + footprint.Offset;
+        uint64_t dest_pitch = footprint.Footprint.RowPitch;
+        for (int i = 0; i < rows; ++i) {
+            memcpy(dest + i * dest_pitch, &image.At(0, i), image.width * image.stride);
         }
         upload_buffer.GetComPtr()->Unmap(0, nullptr);
         ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(tex_desc);
@@ -491,7 +568,8 @@ private:
     int32_t AssignIndex(Type type);
 public:
     BindlessHeap(ComPtr<ID3D12Device>& device, ResourceManager& res_mgr, uint32_t srv_scope, uint32_t cbv_scope, uint32_t uav_scope);
-    std::optional<std::string> BindShaderResource(const std::string& name);
+    std::optional<std::string> BindTexture(const std::string& name);
+    std::optional<std::string> BindStructuredBuffer(const std::string& name);
     std::optional<std::string> BindConstantBuffer(const std::string& name);
     int32_t QueryResourceIndex(const std::string& name);
     bool Unbind(const std::string& name);
@@ -525,6 +603,15 @@ public:
     }
 
     void FreeResource(ComPtr<ID3D12Resource> resource) override {
-
+        UINT size = 0;
+        resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
+        std::wstring name;
+        if (size == 0) {
+            name = L"Unnamed Object";
+        } else {
+            name.resize(size / sizeof(wchar_t));
+            resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
+        }
+        LDEBUG("Resource {} is released", ConvertWstringToString(name));
     }
 };

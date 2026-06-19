@@ -12,6 +12,8 @@
 #include <source_location>
 #include <wrl.h>
 #include <windows.h>
+#include <bcrypt.h>
+#include <sstream>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -65,6 +67,7 @@ public:
     virtual ComPtr<ID3D12Resource> CreateLocalResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) = 0;
     virtual ComPtr<ID3D12Resource> CreateRemoteResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) = 0;
     virtual void FreeResource(ComPtr<ID3D12Resource> resource) = 0;
+    virtual ~DXAllocator() = default;
 };
 
 class Resource;
@@ -79,4 +82,25 @@ void CHECKHR(T t, const std::source_location& location = std::source_location::c
     if (!SUCCEEDED(t)) {
         std::cout << std::format("Error Occurred at {}:{} while calling function {}\n", location.file_name(), location.line(), location.function_name());
     }
+}
+
+constexpr static std::string_view hex_lowercase("0123456789abcdef");
+constexpr static std::string_view hex_uppercase("0123456789ABCDEF");
+
+std::string ToHexLowerCase(uint8_t* d, size_t n) {
+    std::stringstream ss;
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t k = d[i];
+        ss << hex_lowercase[k / 16];
+        ss << hex_lowercase[k % 16];
+    }
+    return ss.str();
+}
+
+template<typename Vector>
+requires requires(Vector v) { v.size(); v[0]; }
+std::string CalcSHA256HexDigest(Vector& input) {
+    uint8_t digest[32] {};
+    BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, reinterpret_cast<PBYTE>(&input[0]), input.size(), digest, 32);
+    return ToHexLowerCase(digest, 32);
 }

@@ -2,6 +2,8 @@
 
 #include <fstream>
 #include <string>
+#include <windows.h>
+#include <mlog.h>
 
 template<size_t ALIGNMENT, typename T>
 T AlignV(T value) {
@@ -36,7 +38,7 @@ public:
     T& Get() {
 #ifndef NDEBUG
         if (!initialized_) {
-            std::cout << "Lazy Object not constructed yet" << std::endl;
+            LFATAL("Cannot execute Get() of a Lazy object, the Lazy object not constructed yet");
             exit(EXIT_FAILURE);
         }
 #endif
@@ -90,25 +92,8 @@ public:
     }
 };
 
-inline std::optional<std::wstring> ConvertStringToWstring(std::string_view src) {
-    if (src.empty()) return std::nullopt;
-    int len = MultiByteToWideChar(CP_ACP, 0, src.data(), -1, nullptr, 0);
-    if (len == 0) return std::nullopt;
-    wchar_t* dst = (wchar_t*)malloc(len * sizeof(wchar_t));
-    if (!dst) return std::nullopt;
-    MultiByteToWideChar(CP_ACP, 0, src.data(), -1, dst, len);
-    return dst;
-}
-
-inline std::optional<std::string> ConvertWstringToString(std::wstring_view src) {
-    if (src.empty()) return std::nullopt;
-    int len = WideCharToMultiByte(CP_ACP, 0, src.data(), -1, nullptr, 0, nullptr, nullptr);
-    if (len == 0) return std::nullopt;
-    char* dst = (char*)malloc(len);
-    if (!dst) return std::nullopt;
-    WideCharToMultiByte( CP_ACP, 0, src.data(), -1, dst, len, nullptr, nullptr);
-    return dst;
-}
+std::wstring ConvertStringToWstring(const std::string& src);
+std::string ConvertWstringToString(const std::wstring& src);
 
 /* Performance Counter, used to track FPS, CPU usage, GPU usage etc. */
 class PerformanceCounter {
@@ -235,6 +220,12 @@ constexpr size_t CountOf(T(&)[N]) {
     return N;
 }
 
+inline bool FileExists(const std::string& file_name) {
+    std::ifstream in(file_name);
+    return in.good();
+
+}
+
 inline size_t GetFileLength(std::string_view file_name) {
     std::ifstream input(file_name.data(), std::ios::in | std::ios::binary);
     int64_t now = input.tellg();
@@ -244,11 +235,22 @@ inline size_t GetFileLength(std::string_view file_name) {
     return len;
 }
 
-inline std::string ReadFileIntoString(std::string_view file_name) {
+inline std::optional<std::string> ReadFileIntoString(std::string_view file_name) {
     std::ifstream input(file_name.data(), std::ios::in | std::ios::binary);
+    if (!input) {
+        return std::nullopt;
+    }
     size_t len = GetFileLength(file_name);
     std::string content;
     content.resize(len);
     input.read(&content[0], len);
     return content;
 }
+
+inline void WriteStringToFile(const std::string& file_name, const std::string& str) {
+    std::ofstream output(file_name, std::ios::out | std::ios::binary);
+    output.write(str.c_str(), str.size());
+}
+
+template<typename T, typename U>
+concept decay_as = std::same_as<std::decay_t<T>, U>;

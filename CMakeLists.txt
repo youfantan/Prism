@@ -67,6 +67,10 @@ add_executable(PrismRenderer
         src/render/resource.cpp
         src/render/drawcall.cpp
         include/transform/helper.h
+        include/render/ui.h
+        include/io/font.h
+        include/io/image.h
+        src/utils.cpp
 )
-target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler turbojpeg)
+target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler dxguid bcrypt turbojpeg freetype)
 add_dependencies(PrismRenderer copy_dirs copy_binaries)
