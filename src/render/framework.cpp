@@ -57,13 +57,25 @@ void RenderContext::Render(std::function<void()>&& callback) {
         D3D12_RECT scissor_rect = { 0, 0, static_cast<LONG>(init_.width), static_cast<LONG>(init_.height) };
         auto rtv = fr.rtv_handle;
         auto dsv = fr.dsv_handle;
+        auto msaa_rtv = fr.msaa_rtv_handle;
         list->RSSetViewports(1, &viewport);
         list->RSSetScissorRects(1, &scissor_rect);
-        fr.back_buffer->Transition(D3D12_RESOURCE_STATE_RENDER_TARGET, list);
         list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-        list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-        list->ClearRenderTargetView(rtv, init_.rt_clear_color, 0, nullptr);
+        if (init_.msaa_type == MSAAType::NONE) {
+                fr.back_buffer->Transition(D3D12_RESOURCE_STATE_RENDER_TARGET, list);
+                list->OMSetRenderTargets(1, &rtv, false, &dsv);
+                list->ClearRenderTargetView(rtv, init_.rt_clear_color, 0, nullptr);
+        } else {
+                fr.msaa_buffer->Transition(D3D12_RESOURCE_STATE_RENDER_TARGET, list);
+                list->OMSetRenderTargets(1, &msaa_rtv, false, &dsv);
+                list->ClearRenderTargetView(msaa_rtv, init_.rt_clear_color, 0, nullptr);
+        }
         callback();
+        if (init_.msaa_type != MSAAType::NONE) {
+                fr.msaa_buffer->Transition(D3D12_RESOURCE_STATE_RESOLVE_SOURCE, list);
+                fr.back_buffer->Transition(D3D12_RESOURCE_STATE_RESOLVE_DEST, list);
+                list->ResolveSubresource(fr.back_buffer->GetComPtr().Get(), 0, fr.msaa_buffer->GetComPtr().Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+        }
         fr.back_buffer->Transition(D3D12_RESOURCE_STATE_PRESENT, list);
         auto& ref_res = bindless_heap_.GetReferencedResource();
         for (auto& res : ref_res) {

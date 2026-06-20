@@ -156,7 +156,7 @@ public:
             .rasterizer_desc = DefaultRasterizerDesc,
             .blend_desc = AlphaBlendDesc,
             .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {1, 0},
+            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
             .iv_layout = {iv_layout, 4},
             .samplers = ssamplers
         };

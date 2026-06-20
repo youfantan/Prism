@@ -70,10 +70,28 @@ struct FrameResource {
     static void InitializeFrameResources(const dx_init_t& init, std::vector<FrameResource>& frs,
         ComPtr<IDXGISwapChain4>& swapchain, ResourceManager& res_mgr, ComPtr<ID3D12Device>& device,
         RTVHeap& rtv_heap, DSVHeap& dsv_heap, RTVHeap& msaa_heap) {
+        RenderTarget* msaa_rt = nullptr;
+        D3D12_CPU_DESCRIPTOR_HANDLE msaa_rtv {};
+        if (init.msaa_type != MSAAType::NONE) {
+            std::string msaa_buffer_name = "MSAABuffer";
+            auto msaa_buffer = res_mgr.CreateRenderTarget(msaa_buffer_name, DXGI_FORMAT_R8G8B8A8_UNORM, init.width, init.height, init.rt_clear_color, init.msaa_type);
+            if (!msaa_buffer.has_value()) {
+                LFATAL("Cannot create {}", msaa_buffer_name);
+            }
+            msaa_rt = msaa_buffer.value();
+            D3D12_RENDER_TARGET_VIEW_DESC mrtv_desc {};
+            mrtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            mrtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+            device->CreateRenderTargetView(msaa_buffer.value()->GetComPtr().Get(), &mrtv_desc, msaa_heap.GetCPUHandle(0));
+            ResourceView mrtv {};
+            mrtv.type = ResourceViewType::RTV;
+            mrtv.data.handle = msaa_heap.GetCPUHandle(0);
+            res_mgr.GetMap().BindResourceView(msaa_buffer_name, "rtv", mrtv);
+            msaa_rtv = mrtv.data.handle;
+        }
         for (int i = 0; i < init.buffer_count; ++i) {
             std::string back_buffer_name = std::format("BackBuffer #{}", i);
             std::string depth_buffer_name = std::format("DepthBuffer #{}", i);
-            std::string msaa_buffer_name = std::format("MSAABuffer #{}", i);
             ComPtr<ID3D12Resource> back_buffer_resource;
             swapchain->GetBuffer(i, IID_PPV_ARGS(&back_buffer_resource));
             auto back_buffer = res_mgr.CreateRenderTarget(back_buffer_name, back_buffer_resource);
@@ -88,23 +106,7 @@ struct FrameResource {
             dsv.type = ResourceViewType::DSV;
             dsv.data.handle = dsv_heap.GetCPUHandle(i);
             res_mgr.GetMap().BindResourceView(depth_buffer_name, "dsv", dsv);
-            if (init.msaa_type != MSAAType::NONE) {
-                auto msaa_buffer = res_mgr.CreateRenderTarget(msaa_buffer_name, DXGI_FORMAT_R8G8B8A8_UNORM, init.width, init.height, init.msaa_type);
-                if (!msaa_buffer.has_value()) {
-                    LFATAL("Cannot create {}", msaa_buffer_name);
-                }
-                D3D12_RENDER_TARGET_VIEW_DESC mrtv_desc {};
-                mrtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                mrtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
-                device->CreateRenderTargetView(msaa_buffer.value()->GetComPtr().Get(), &mrtv_desc, msaa_heap.GetCPUHandle(i));
-                ResourceView mrtv {};
-                mrtv.type = ResourceViewType::RTV;
-                mrtv.data.handle = msaa_heap.GetCPUHandle(i);
-                res_mgr.GetMap().BindResourceView(depth_buffer_name, "rtv", mrtv);
-                frs.emplace_back(i, back_buffer.value(), depth_buffer.value(), msaa_buffer.value(), rtv.data.handle, dsv.data.handle, mrtv.data.handle);
-            } else {
-                frs.emplace_back(i, back_buffer.value(), depth_buffer.value(), nullptr, rtv.data.handle, dsv.data.handle, D3D12_CPU_DESCRIPTOR_HANDLE(0));
-            }
+            frs.emplace_back(i, back_buffer.value(), depth_buffer.value(), msaa_rt, rtv.data.handle, dsv.data.handle, msaa_rtv);
         }
     }
 };
@@ -275,7 +277,7 @@ public:
             .rasterizer_desc = DefaultRasterizerDesc,
             .blend_desc = DefaultBlendDesc,
             .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {1, 0},
+            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
             .iv_layout = {iv_layout, 3},
             .samplers = ssamplers
         };
@@ -318,7 +320,7 @@ public:
             .rasterizer_desc = DefaultRasterizerDesc,
             .blend_desc = DefaultBlendDesc,
             .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {1, 0},
+            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
             .iv_layout = {iv_layout, 3},
             .samplers = ssamplers
         };

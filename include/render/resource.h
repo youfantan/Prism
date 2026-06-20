@@ -361,20 +361,23 @@ public:
         return { ub };
     }
 
-    std::optional<RenderTarget*> CreateRenderTarget(const std::string& name, DXGI_FORMAT rt_fmt, uint32_t width, uint32_t height, MSAAType type) {
+    std::optional<RenderTarget*> CreateRenderTarget(const std::string& name, DXGI_FORMAT rt_fmt, uint32_t width, uint32_t height, const float clear_color[4], MSAAType type) {
         D3D12_RESOURCE_DESC desc {};
         desc.Alignment = 0;
         desc.Width = width;
         desc.Height = height;
         desc.DepthOrArraySize = 1;
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         desc.Format = rt_fmt;
         desc.MipLevels = 1;
         desc.SampleDesc.Count = GetSampleCount(type);
         desc.SampleDesc.Quality = 0;
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc);
+        D3D12_CLEAR_VALUE clr {};
+        clr.Format = rt_fmt;
+        memcpy(clr.Color, clear_color, sizeof(float) * 4);
+        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc, D3D12_RESOURCE_STATE_COMMON, &clr);
         if (!map_.CreateResource<RenderTarget>(name, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
         auto query = map_.QueryResource<RenderTarget>(name);
         return query;
