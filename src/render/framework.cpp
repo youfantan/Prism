@@ -21,7 +21,7 @@ Device::Device() {
 #endif
 }
 
-RenderContext::RenderContext(Device& device, RenderQueue& rq, const dx_init_t& init) : device_(device), init_(init), render_queue_(rq), rtv_heap_(device_.GetComPtr(), init.buffer_count), dsv_heap_(device_.GetComPtr(), init.buffer_count), msaa_heap_(device_.GetComPtr(), init.buffer_count) {
+RenderContext::RenderContext(Device& device, RenderQueue& rq, ResourceManager& rm, BindlessHeap& heap, const dx_init_t& init) : device_(device), init_(init), render_queue_(rq), res_mgr_(rm), bindless_heap_(heap), rtv_heap_(device_.GetComPtr(), init.buffer_count), dsv_heap_(device_.GetComPtr(), init.buffer_count), msaa_heap_(device_.GetComPtr(), init.buffer_count) {
         D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS ms_lv;
         ms_lv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         ms_lv.SampleCount = 4;
@@ -49,6 +49,7 @@ void RenderContext::RecordRenderList(render_callback_t&& rc) {
 
 void RenderContext::Render(std::function<void()>&& callback) {
         records_.clear();
+        bindless_heap_.ClearReferencedResources();
         auto& fr = GetCurrentFrameResource();
         auto list = render_queue_.PrepareRenderQueue(swapchain_->GetCurrentBackBufferIndex());
         record_list_ = list;
@@ -64,12 +65,31 @@ void RenderContext::Render(std::function<void()>&& callback) {
         list->ClearRenderTargetView(rtv, init_.rt_clear_color, 0, nullptr);
         callback();
         fr.back_buffer->Transition(D3D12_RESOURCE_STATE_PRESENT, list);
-        uint64_t fence_value = render_queue_.CommitRenderQueue(swapchain_->GetCurrentBackBufferIndex());
+        auto& ref_res = bindless_heap_.GetReferencedResource();
+        for (auto& res : ref_res) {
+                res->GetRenderWaitable().GPUWait(render_queue_.GetComPtr());
+                res->GetCopyWaitable().GPUWait(render_queue_.GetComPtr());
+        }
         for (auto& record : records_) {
-                record.drawcall->waitable_ = Waitable(render_queue_.GetRenderFence(), fence_value);
                 for (auto& res : record.resources) {
-                        res->GetWaitable() = Waitable(render_queue_.GetRenderFence(), fence_value);
+                        res->GetRenderWaitable().GPUWait(render_queue_.GetComPtr());
+                        res->GetCopyWaitable().GPUWait(render_queue_.GetComPtr());
                 }
         }
-        swapchain_->Present(1, 0);
+        uint64_t fence_value = render_queue_.CommitRenderQueue(swapchain_->GetCurrentBackBufferIndex());
+        for (auto& res : ref_res) {
+                res->GetRenderWaitable().GetFenceValue() = fence_value;
+        }
+        for (auto& record : records_) {
+                record.drawcall->waitable_.GetFenceValue() = fence_value;
+                for (auto& res : record.resources) {
+                        res->GetRenderWaitable().GetFenceValue() = fence_value;
+                }
+        }
+        if (init_.enable_vsync) {
+                swapchain_->Present(1, 0);
+        } else {
+                swapchain_->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+        }
+        res_mgr_.GetMap().CleanUp();
 }

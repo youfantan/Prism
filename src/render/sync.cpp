@@ -18,10 +18,10 @@ Fence::Fence(ComPtr<ID3D12Device>& device) : value_(0) {
     evt_ = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
 }
 
-Waitable Fence::AllocateWaitable() {
-    return Waitable{ *this, ++value_ };
+uint64_t Fence::AllocateValue() {
+    return ++value_;
 }
 
-void Fence::GPUSync(Waitable& waitable, ComPtr<ID3D12CommandQueue>& queue) {
-    queue->Signal(fence_.Get(), waitable.GetFenceValue());
+void Fence::GPUSync(uint64_t value, ComPtr<ID3D12CommandQueue>& queue) {
+    queue->Signal(fence_.Get(), value);
 }

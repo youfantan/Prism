@@ -16,7 +16,8 @@ Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHea
     rs_desc.pParameters = rps;
     rs_desc.NumStaticSamplers = resource.samplers.GetSize();
     rs_desc.pStaticSamplers = resource.samplers.GetDescs();
-    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+        | D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
     ComPtr<ID3DBlob> serialized;
     ComPtr<ID3DBlob> error;
     HRESULT r = D3D12SerializeRootSignature(&rs_desc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &error);
@@ -42,7 +43,7 @@ Drawcall::Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHea
     device_->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pso_));
 }
 
-void Drawcall::operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, std::string& ib_name) {
+void Drawcall::operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, const std::string& ib_name) {
     ctx.RecordRenderList([&](ComPtr<ID3D12GraphicsCommandList> list) -> RenderContext::record_t {
         auto* cb = res_mgr_.GetMap().QueryResource<ConstantBuffer>(presets_cb_name).value();
         auto* vb = res_mgr_.GetMap().QueryResource<VertexBuffer>(vb_name).value();
@@ -50,11 +51,11 @@ void Drawcall::operator()(RenderContext& ctx, const std::string& presets_cb_name
         auto vbv = res_mgr_.GetMap().QueryResourceView(vb_name, "default_vb_view").value()->data.vb_view;
         auto ibv = res_mgr_.GetMap().QueryResourceView(ib_name, "default_ib_view").value()->data.ib_view;
         list->SetPipelineState(pso_.Get());
-        list->SetGraphicsRootSignature(sign_.Get());
         list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        list->SetGraphicsRootConstantBufferView(0, cb->GetComPtr()->GetGPUVirtualAddress());
         ID3D12DescriptorHeap* heaps[] = {heap_.GetComPtr().Get()};
         list->SetDescriptorHeaps(1, heaps);
+        list->SetGraphicsRootSignature(sign_.Get());
+        list->SetGraphicsRootConstantBufferView(0, cb->GetComPtr()->GetGPUVirtualAddress());
         list->SetGraphicsRootDescriptorTable(1, heap_.GetComPtr()->GetGPUDescriptorHandleForHeapStart());
         list->IASetVertexBuffers(0, 1, &vbv);
         list->IASetIndexBuffer(&ibv);

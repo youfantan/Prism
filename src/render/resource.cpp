@@ -56,8 +56,10 @@ std::optional<std::string> BindlessHeap::BindStructuredBuffer(const std::string&
     auto query = res_mgr_.GetMap().QueryResource<StructuredBuffer>(name);
     if (!query.has_value()) return std::nullopt;
     desc.Format = query.value()->GetComPtr()->GetDesc().Format;
+    desc.Buffer.StructureByteStride = query.value()->GetStructureSize();
+    desc.Buffer.FirstElement = 0;
+    desc.Buffer.NumElements = query.value()->GetComPtr()->GetDesc().Width / desc.Buffer.StructureByteStride;
     desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    desc.Texture2D.MipLevels = 1;
     desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUHandle(index);
     device_->CreateShaderResourceView(query.value()->GetComPtr().Get(), &desc, handle);
@@ -93,6 +95,7 @@ int32_t BindlessHeap::QueryResourceIndex(const std::string& name) {
     if (heap_mapping_.contains(name)) {
         return heap_mapping_[name];
     }
+    LFATAL("Cannot found request index of resource {} in bindless heap", name);
     return -1;
 }
 

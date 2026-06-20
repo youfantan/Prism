@@ -8,6 +8,7 @@
 #include <mlog.h>
 #include <utils.h>
 
+class ImageLoader;
 
 template<typename T>
 concept is_image_format = requires {
@@ -44,10 +45,19 @@ struct ImageFormatGray {
 template<typename ImageFormat>
 requires is_image_format<ImageFormat>
 struct Image {
+    friend ImageLoader;
     uint8_t* ptr;
     size_t stride;
     size_t width;
     size_t height;
+
+    Image(const Image&) = delete;
+    Image(Image&& img) noexcept : ptr(img.ptr), stride(img.stride), width(img.width), height(img.height) {
+        img.ptr = nullptr;
+        img.stride = 0;
+        img.width = 0;
+        img.height = 0;
+    }
 
     ImageFormat::data_type_t& At(size_t x, size_t y) {
         return reinterpret_cast<ImageFormat::data_type_t&>(ptr[(y * width + x) * stride]);
@@ -67,11 +77,15 @@ struct Image {
     }
 
     ~Image() {
-        delete[] ptr;
-        width = 0;
-        height = 0;
-        stride = 0;
+        if (ptr != nullptr) {
+            delete[] ptr;
+            width = 0;
+            height = 0;
+            stride = 0;
+        }
     }
+private:
+    Image() : ptr(nullptr), width(0), height(0), stride(0) {}
 };
 
 class ImageLoader {
@@ -80,7 +94,7 @@ public:
     requires is_image_format<ImageFormat>
     static Image<ImageFormat> CreateBlankImage(size_t width, size_t height) {
         using data_type_t = ImageFormat::data_type_t;
-        Image<ImageFormat> img;
+        Image<ImageFormat> img {};
         img.ptr = new data_type_t[width * height];
         memset(img.ptr, 0, width * height * ImageFormat::Stride);
         img.width = width;

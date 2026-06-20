@@ -7,6 +7,7 @@
 #include "io/shader.h"
 #include "io/texture.h"
 #include "render/framework.h"
+#include "render/ui.h"
 
 #include "transform/camera.h"
 #include "transform/helper.h"
@@ -81,13 +82,16 @@ int main() {
         .copy_workers_count = 5,
         .msaa_type = MSAAType::NONE,
         .rt_clear_color = {0.2f, 0.2f, 0.2f, 1.0f},
+        .enable_vsync = false,
         .shaders_dir = "shaders",
         .textures_dir = "textures",
+        .assets_dir = "assets",
         .cbv_count = 16,
         .srv_count = 16,
         .uav_count = 16,
     };
     DXFramework<DXDefaultAllocator> dxfw(init);
+    UIDrawcall ui("prism_ui", &dxfw, { "UbuntuMono" });
     p_dxfw = &dxfw;
 
     auto& resmgr = dxfw.GetResourceManager();
@@ -172,6 +176,9 @@ int main() {
         p_Scene->camera_position = camera.GetCameraPos4();
         render_context.Render([&] {
             pyramid(0, 0, 0, 1);
+            ui("UbuntuMono", L"Prism Renderer using DirectX12 API", 30, 30, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
+            ui("UbuntuMono", std::format(L"Current FPS: {}", pc.QueryFPS()), 30, 50, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
+            ui("UbuntuMono", L"This is a demo that shows basic pipeline. To learn more, visit https://github.com/youfantan/Prism", 30, 70, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
         });
         dxfw.GetCopyQueue().DeferredRelease();
     });

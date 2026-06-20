@@ -46,8 +46,8 @@ public:
 };
 
 struct DrawcallResource {
-    ComPtr<ID3DBlob> vs_bytecode;
-    ComPtr<ID3DBlob> ps_bytecode;
+    ComPtr<IDxcBlob> vs_bytecode;
+    ComPtr<IDxcBlob> ps_bytecode;
     D3D12_RASTERIZER_DESC rasterizer_desc;
     D3D12_BLEND_DESC blend_desc;
     D3D12_DEPTH_STENCIL_DESC ds_desc;
@@ -68,7 +68,7 @@ private:
     Waitable waitable_;
 public:
     Drawcall(ComPtr<ID3D12Device>& device, RenderQueue& queue, BindlessHeap& heap, ResourceManager& res_mgr, const DrawcallResource& resource);
-    void operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, std::string& ib_name);
+    void operator()(RenderContext& ctx, const std::string& presets_cb_name, const std::string& vb_name, const std::string& ib_name);
     ~Drawcall() {
         waitable_.CPUWait();
     }
@@ -77,7 +77,7 @@ public:
 
 static constexpr D3D12_RASTERIZER_DESC DefaultRasterizerDesc = {
     .FillMode = D3D12_FILL_MODE_SOLID,
-    .CullMode = D3D12_CULL_MODE_BACK,
+    .CullMode = D3D12_CULL_MODE_NONE,
     .FrontCounterClockwise = FALSE,
     .DepthBias = D3D12_DEFAULT_DEPTH_BIAS,
     .DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP,
@@ -99,6 +99,25 @@ static constexpr D3D12_BLEND_DESC DefaultBlendDesc = {
         D3D12_LOGIC_OP_NOOP,
         D3D12_COLOR_WRITE_ENABLE_ALL,
     }
+};
+
+static constexpr D3D12_BLEND_DESC AlphaBlendDesc = {
+    .AlphaToCoverageEnable = FALSE,
+    .IndependentBlendEnable = FALSE,
+    .RenderTarget = {
+        D3D12_RENDER_TARGET_BLEND_DESC {
+            .BlendEnable = true,
+            .LogicOpEnable = false,
+            .SrcBlend = D3D12_BLEND_SRC_ALPHA,
+            .DestBlend = D3D12_BLEND_INV_SRC_ALPHA,
+            .BlendOp = D3D12_BLEND_OP_ADD,
+            .SrcBlendAlpha = D3D12_BLEND_ONE,
+            .DestBlendAlpha = D3D12_BLEND_ZERO,
+            .BlendOpAlpha = D3D12_BLEND_OP_ADD,
+            .LogicOp = D3D12_LOGIC_OP_NOOP,
+            .RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL
+        },
+    },
 };
 
 static constexpr D3D12_DEPTH_STENCIL_DESC DefaultDepthStencilDesc = {

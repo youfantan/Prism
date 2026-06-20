@@ -16,8 +16,10 @@ using dx_init_t = struct {
     uint32_t copy_workers_count;
     MSAAType msaa_type;
     float rt_clear_color[4];
-    std::string_view shaders_dir;
-    std::string_view textures_dir;
+    bool enable_vsync;
+    std::string shaders_dir;
+    std::string textures_dir;
+    std::string assets_dir;
     uint64_t cbv_count;
     uint64_t srv_count;
     uint64_t uav_count;
@@ -124,13 +126,15 @@ private:
     std::vector<FrameResource> frame_resources_;
     ComPtr<IDXGISwapChain4> swapchain_;
     RenderQueue& render_queue_;
+    ResourceManager& res_mgr_;
+    BindlessHeap& bindless_heap_;
     DSVHeap dsv_heap_;
     RTVHeap rtv_heap_;
     RTVHeap msaa_heap_;
     ComPtr<ID3D12GraphicsCommandList> record_list_;
     std::vector<record_t> records_;
 public:
-    RenderContext(Device& device, RenderQueue& rq, const dx_init_t& init);
+    RenderContext(Device& device, RenderQueue& rq, ResourceManager& rm, BindlessHeap& heap, const dx_init_t& init);
 
     void RecordRenderList(render_callback_t&& rc);
     void Render(std::function<void()>&& callback);
@@ -156,13 +160,13 @@ private:
     RenderQueue render_queue_;
     CopyQueue copy_queue_;
     ResourceManager res_mgr_;
-    RenderContext ctx_;
     BindlessHeap heap_;
+    RenderContext ctx_;
     ShaderLoader shader_loader_;
     TextureLoader texture_loader_;
 public:
     template<typename... Args>
-    DXFramework(const dx_init_t& init, Args&&... args) : init_(init), allocator_(device_.GetComPtr(), std::forward<Args>(args)...), copy_queue_(device_.GetComPtr(), init_.copy_workers_count), render_queue_(device_.GetComPtr(), init_.buffer_count), res_mgr_(device_.GetComPtr(), &allocator_, copy_queue_), ctx_(device_, render_queue_, init_), heap_(device_.GetComPtr(), res_mgr_, init.srv_count, init.cbv_count, init.uav_count), shader_loader_(init.shaders_dir), texture_loader_(init.textures_dir) {
+    DXFramework(const dx_init_t& init, Args&&... args) : init_(init), allocator_(device_.GetComPtr(), std::forward<Args>(args)...), copy_queue_(device_.GetComPtr(), init_.copy_workers_count), render_queue_(device_.GetComPtr(), init_.buffer_count), res_mgr_(device_.GetComPtr(), &allocator_, copy_queue_, render_queue_), heap_(device_.GetComPtr(), res_mgr_, init.srv_count, init.cbv_count, init.uav_count), ctx_(device_, render_queue_, res_mgr_, heap_, init_), shader_loader_(init.shaders_dir), texture_loader_(init.textures_dir) {
         FrameResource::InitializeFrameResources(init_, ctx_.frame_resources_, ctx_.swapchain_, res_mgr_, device_.GetComPtr(), ctx_.rtv_heap_, ctx_.dsv_heap_, ctx_.msaa_heap_);
     }
 
@@ -256,8 +260,8 @@ private:
 public:
     ObjectDrawcall(const std::string& object_name, std::vector<Vertex>&& vertices, std::vector<Index>&& indices, DXFramework* dxfw, const std::string& tex_name)
     : object_name_(object_name), vertices_(std::move(vertices)), indices_(std::move(indices)), dxfw_(dxfw) {
-        auto vs = dxfw->GetShaderLoader().LoadShaderIntoMemory("object", ShaderType::VertexShader);
-        auto ps = dxfw->GetShaderLoader().LoadShaderIntoMemory("object", ShaderType::PixelShader);
+        auto vs = dxfw->GetShaderLoader().CompileShader("object", ShaderType::VertexShader);
+        auto ps = dxfw->GetShaderLoader().CompileShader("object", ShaderType::PixelShader);
         const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
             { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -299,8 +303,8 @@ public:
     : object_name_(object_name), vertices_(vertices_count), indices_(indices_count), dxfw_(dxfw) {
         memcpy(&vertices_[0], vertices, sizeof(Vertex) * vertices_count);
         memcpy(&indices_[0], indices, sizeof(Index) * indices_count);
-        auto vs = dxfw->GetShaderLoader().LoadShaderIntoMemory("object", ShaderType::VertexShader);
-        auto ps = dxfw->GetShaderLoader().LoadShaderIntoMemory("object", ShaderType::PixelShader);
+        auto vs = dxfw->GetShaderLoader().CompileShader("object", ShaderType::VertexShader);
+        auto ps = dxfw->GetShaderLoader().CompileShader("object", ShaderType::PixelShader);
         const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
             { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -336,9 +340,10 @@ public:
         }
         presets_ = presets_create.value();
         presets_->GetMapping<ObjectPresets>()->texture_index = dxfw_->GetBindlessHeap().QueryResourceIndex(tex_name);
+        auto* presets = GetObjectPresets();
     }
     ObjectPresets* GetObjectPresets() {
-        return presets_;
+        return presets_->GetMapping<ObjectPresets>();
     }
 
     void operator()(float x, float y, float z, float size) {

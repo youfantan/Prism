@@ -19,14 +19,14 @@ cbuffer Scene : register(b1) {
     float4 dotlight_color[16];
 }
 
-Texture2D Textures[8] : register(t0);
 SamplerState Sampler : register(s0);
 
 float4 main(Pixel p) : SV_Target {
+    Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(tex_index)];
     float3 N = normalize(p.normal);
     float3 V = normalize(camera_pos.xyz - p.w_position);
-    float3 tex_color = Textures[NonUniformResourceIndex(tex_index)].Sample(Sampler, p.uv);
-    float3 result;
+    float3 tex_color = tex.Sample(Sampler, p.uv);
+    float3 result = (float3)0;
     for (uint i = 0; i < dotlight_count; i++) {
         float3 L = normalize(dotlight_pos[i].xyz - p.w_position);
         float diffuse = saturate(dot(N, L));

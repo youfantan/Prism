@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
+#include <dxcapi.h>
 #include <DirectXMath.h>
 #include <format>
 #include <iostream>
@@ -24,6 +25,7 @@ enum class ResourceType {
     RenderTarget,
     DepthBuffer,
     ConstBuffer,
+    StructuredBuffer,
     ShaderResource,
     VertexBuffer,
     IndexBuffer,
@@ -87,7 +89,7 @@ void CHECKHR(T t, const std::source_location& location = std::source_location::c
 constexpr static std::string_view hex_lowercase("0123456789abcdef");
 constexpr static std::string_view hex_uppercase("0123456789ABCDEF");
 
-std::string ToHexLowerCase(uint8_t* d, size_t n) {
+inline std::string ToHexLowerCase(const uint8_t* d, size_t n) {
     std::stringstream ss;
     for (size_t i = 0; i < n; ++i) {
         uint8_t k = d[i];
@@ -99,8 +101,8 @@ std::string ToHexLowerCase(uint8_t* d, size_t n) {
 
 template<typename Vector>
 requires requires(Vector v) { v.size(); v[0]; }
-std::string CalcSHA256HexDigest(Vector& input) {
+inline std::string CalcSHA256HexDigest(Vector& input) {
     uint8_t digest[32] {};
-    BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, reinterpret_cast<PBYTE>(&input[0]), input.size(), digest, 32);
+    BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, (PBYTE)(&input[0]), input.size(), digest, 32);
     return ToHexLowerCase(digest, 32);
 }

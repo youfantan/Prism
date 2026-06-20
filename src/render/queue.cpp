@@ -49,8 +49,8 @@ uint64_t RenderQueue::CommitRenderQueue(uint32_t index) {
     worker.list->Close();
     ID3D12CommandList* lists[] = { worker.list.Get() };
     queue_->ExecuteCommandLists(1, lists);
-    worker.waitable = fence_.AllocateWaitable();
-    fence_.GPUSync(worker.waitable, queue_);
+    worker.waitable.GetFenceValue() = fence_.AllocateValue();
+    fence_.GPUSync(worker.waitable.GetFenceValue(), queue_);
     return worker.waitable.GetFenceValue();
 }
 
@@ -94,11 +94,12 @@ void CopyQueue::CopyBuffer(Resource* dest, UploadBuffer& src) {
     worker.list->CopyResource(dest->GetComPtr().Get(), src.GetComPtr().Get());
     worker.list->Close();
     ID3D12CommandList* lists[] = { worker.list.Get() };
-    dest->GetWaitable().GPUWait(queue_);
+    dest->GetRenderWaitable().GPUWait(queue_);
+    dest->GetCopyWaitable().GPUWait(queue_);
     queue_->ExecuteCommandLists(1, lists);
-    worker.waitable = fence_.AllocateWaitable();
-    dest->GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
-    fence_.GPUSync(worker.waitable, queue_);
+    worker.waitable.GetFenceValue() = fence_.AllocateValue();
+    dest->GetCopyWaitable().GetFenceValue() = worker.waitable.GetFenceValue();
+    fence_.GPUSync(worker.waitable.GetFenceValue(), queue_);
     src.GetFenceValue() = worker.waitable.GetFenceValue();
     upload_buffers_.push_back(std::move(src));
 }
@@ -119,11 +120,12 @@ void CopyQueue::CopyTexture(Resource* dest, UploadBuffer& src, D3D12_PLACED_SUBR
     worker.list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
     worker.list->Close();
     ID3D12CommandList* lists[] = { worker.list.Get() };
-    dest->GetWaitable().GPUWait(queue_);
+    dest->GetRenderWaitable().GPUWait(queue_);
+    dest->GetCopyWaitable().GPUWait(queue_);
     queue_->ExecuteCommandLists(1, lists);
-    worker.waitable = fence_.AllocateWaitable();
-    dest->GetWaitable() = Waitable(fence_, worker.waitable.GetFenceValue());
-    fence_.GPUSync(worker.waitable, queue_);
+    worker.waitable.GetFenceValue() = fence_.AllocateValue();
+    dest->GetCopyWaitable().GetFenceValue() = worker.waitable.GetFenceValue();
+    fence_.GPUSync(worker.waitable.GetFenceValue(), queue_);
     upload_buffers_.push_back(std::move(src));
 }
 
