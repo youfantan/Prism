@@ -5,9 +5,32 @@
 #include <io/font.h>
 #include <render/framework.h>
 
+struct ui_init_t {
+    std::vector<std::string> load_fonts;
+};
+
 template<typename Allocator>
 requires std::derived_from<Allocator, DXAllocator>
-class UIDrawcall {
+class UIFramework {
+public:
+    class TextDrawcall;
+private:
+    ui_init_t init_;
+    DXFramework<Allocator>* dxfw_;
+    TextDrawcall text_drawcall_;
+public:
+    UIFramework(const ui_init_t& init, DXFramework<Allocator>* dxfw) : init_(init), dxfw_(dxfw), text_drawcall_(dxfw, init.load_fonts) {
+
+    }
+
+    TextDrawcall& GetTextDrawcall() {
+        return text_drawcall_;
+    }
+};
+
+template<typename Allocator>
+requires std::derived_from<Allocator, DXAllocator>
+class UIFramework<Allocator>::TextDrawcall : Drawcall {
 public:
     struct Vertex {
         struct {
@@ -64,10 +87,8 @@ public:
 
     constexpr static uint64_t GENERATE_FONT_SIZE = 128;
 private:
-    std::string name_;
     std::vector<FontTexLoader> fonts_;
     DXFramework<Allocator>* dxfw_;
-    Lazy<Drawcall> ui_drawcall_;
 
     std::optional<std::pair<std::vector<Vertex>, std::vector<Index>>> GenerateTriangles(FontTexLoader& ld, const std::wstring& str, uint32_t draw_x, uint32_t draw_y, float scale_factor) {
         auto idx = ld.GetMappedString(str);
@@ -121,7 +142,30 @@ private:
         return std::make_pair(vertices, indices);
     }
 public:
-    UIDrawcall(const std::string& name, DXFramework<Allocator>* dxfw, const std::vector<std::string>& load_fonts) : name_(name), dxfw_(dxfw) {
+    TextDrawcall(DXFramework<Allocator>* dxfw, const std::vector<std::string>& load_fonts) : Drawcall(dxfw->GetDevice().GetComPtr(), dxfw->GetRenderQueue(), dxfw->GetBindlessHeap(), dxfw->GetResourceManager()), dxfw_(dxfw) {
+        auto vs = dxfw->GetShaderLoader().CompileShader("text", ShaderType::VertexShader);
+        auto ps = dxfw->GetShaderLoader().CompileShader("text", ShaderType::PixelShader);
+        const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "RELPOS",   0, DXGI_FORMAT_R32G32_UINT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "CIDX",   0, DXGI_FORMAT_R32_UINT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        };
+        pso_desc_.InputLayout = { iv_layout, CountOf(iv_layout) };
+        pso_desc_.VS = {vs.blob->GetBufferPointer(), vs.blob->GetBufferSize()};
+        pso_desc_.PS = {ps.blob->GetBufferPointer(), ps.blob->GetBufferSize()};
+        pso_desc_.SampleDesc.Count = GetSampleCount(dxfw_->GetInitializeParams().msaa_type);
+        pso_desc_.SampleDesc.Quality = 0;
+        pso_desc_.NumRenderTargets = 1;
+        pso_desc_.RTVFormats[0] = dxfw_->GetInitializeParams().rt_format;
+        pso_desc_.DSVFormat = dxfw_->GetInitializeParams().ds_format;
+        pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+        pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pso_desc_.SampleMask = UINT_MAX;
+        pso_desc_.BlendState = AlphaBlendDesc;
+        samplers_.Add(StaticSamplers::LINEAR_FILTER(0));
+        Drawcall::BuildPipeline();
+        // Load Fonts
         auto& prefix = dxfw_->GetInitializeParams().assets_dir;
         for (const auto& font_name : load_fonts) {
             if (FontExists(prefix, font_name)) {
@@ -140,37 +184,16 @@ public:
                 }
             }
         }
-        auto vs = dxfw->GetShaderLoader().CompileShader("text", ShaderType::VertexShader);
-        auto ps = dxfw->GetShaderLoader().CompileShader("text", ShaderType::PixelShader);
-        const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "RELPOS",   0, DXGI_FORMAT_R32G32_UINT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "CIDX",   0, DXGI_FORMAT_R32_UINT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
-        StaticSamplers ssamplers;
-        ssamplers.Add(StaticSamplers::LINEAR_FILTER(0));
-        DrawcallResource drawres = {
-            .vs_bytecode = vs.blob,
-            .ps_bytecode = ps.blob,
-            .rasterizer_desc = DefaultRasterizerDesc,
-            .blend_desc = AlphaBlendDesc,
-            .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
-            .iv_layout = {iv_layout, 4},
-            .samplers = ssamplers
-        };
-        ui_drawcall_.Construct(dxfw_->GetRenderContext().GetDevice(), dxfw_->GetRenderQueue(), dxfw_->GetBindlessHeap(), dxfw_->GetResourceManager(), drawres);
     }
 
-    void operator()(CachedStringView& string, const XMFLOAT4& color) {
+    void operator()(RenderPass& rp, CachedStringView& string, const XMFLOAT4& color) {
         string.cb->GetMapping<UIPresets>()->text_color = color;
-        ui_drawcall_.Get()(dxfw_->GetRenderContext(), string.cb->GetName(), string.vb->GetName(), string.ib->GetName());
+        Draw(rp, string.cb, string.vb, string.ib);
     }
 
-    void operator()(const std::string& font, const std::wstring& text, uint32_t draw_x, uint32_t draw_y, uint32_t size, const XMFLOAT4& color) {
+    void operator()(RenderPass& rp, const std::string& font, const std::wstring& text, uint32_t draw_x, uint32_t draw_y, uint32_t size, const XMFLOAT4& color) {
         auto csv = CreateCachedStringView(font, text, draw_x, draw_y, size).value();
-        operator()(csv, color);
+        operator()(rp, csv, color);
     }
 
     std::optional<CachedStringView> CreateCachedStringView(const std::string& font, const std::wstring& str, uint32_t draw_x, uint32_t draw_y, uint32_t size) {

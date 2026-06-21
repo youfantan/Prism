@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <sstream>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -77,6 +78,16 @@ class UploadBuffer;
 class ResourceManager;
 class RenderContext;
 class Drawcall;
+
+struct RenderPass {
+    std::vector<Drawcall*> drawcalls;
+    std::vector<Resource*> referenced_resources;
+    ComPtr<ID3D12GraphicsCommandList> command_list;
+
+    RenderPass(ComPtr<ID3D12GraphicsCommandList> list) : command_list(list), drawcalls(), referenced_resources() {}
+    RenderPass(const RenderPass&) = delete;
+    RenderPass(RenderPass&&) = delete;
+};
 
 template<typename T>
 requires std::same_as<T, HRESULT>

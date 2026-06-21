@@ -65,7 +65,6 @@ add_executable(PrismRenderer
         src/transform/camera.cpp
         src/render/sync.cpp
         src/render/resource.cpp
-        src/render/drawcall.cpp
         include/transform/helper.h
         include/render/ui.h
         include/io/font.h

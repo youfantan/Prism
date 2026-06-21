@@ -74,13 +74,15 @@ int main() {
     };
     KMInput km(hwnd, kmapping);
     kmi = &km;
-    dx_init_t init = {
+    dx_init_t dx_init = {
         .width = WIDTH,
         .height = HEIGHT,
         .hwnd = hwnd,
         .buffer_count = 2,
         .copy_workers_count = 5,
         .msaa_type = MSAAType::MSAA_4X,
+        .rt_format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .ds_format = DXGI_FORMAT_D32_FLOAT,
         .rt_clear_color = {0.2f, 0.2f, 0.2f, 1.0f},
         .enable_vsync = true,
         .shaders_dir = "shaders",
@@ -90,8 +92,15 @@ int main() {
         .srv_count = 16,
         .uav_count = 16,
     };
-    DXFramework<DXDefaultAllocator> dxfw(init);
-    UIDrawcall ui("prism_ui", &dxfw, { "UbuntuMono" });
+
+    ui_init_t ui_init {
+        .load_fonts = {
+            "UbuntuMono"
+        }
+    };
+
+    DXFramework<DXDefaultAllocator> dxfw(dx_init);
+    UIFramework uifw(ui_init, &dxfw);
     p_dxfw = &dxfw;
 
     auto& resmgr = dxfw.GetResourceManager();
@@ -106,7 +115,7 @@ int main() {
     using ObjectDrawcall = decltype(dxfw)::ObjectDrawcall;
 
     // Declare vertices and indices
-    ObjectDrawcall::Vertex v_Pyramid[16] = {
+    std::vector<ObjectDrawcall::Vertex> v_Pyramid = {
         // Bottom
         {{ -0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
         {{ 0.5f, -0.5f, -0.5f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
@@ -130,7 +139,7 @@ int main() {
         {{ -0.5f, -0.5f, 0.5f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
     };
 
-    ObjectDrawcall::Index i_Pyramid[18] = {
+    std::vector<ObjectDrawcall::Index> i_Pyramid = {
         // Bottom
         0, 1, 2,
         0, 2, 3,
@@ -143,30 +152,51 @@ int main() {
         // Back
         13, 14, 15
     };
-    for (int i = 0; i < CountOf(i_Pyramid) / 3; ++i) {
-        uint32_t a = i_Pyramid[i * 3 + 0];
-        uint32_t b = i_Pyramid[i * 3 + 1];
-        uint32_t c = i_Pyramid[i * 3 + 2];
-        XMFLOAT3 normal;
-        GenerateNormal(reinterpret_cast<XMFLOAT3*>(&v_Pyramid[a].Position), reinterpret_cast<XMFLOAT3*>(&v_Pyramid[b].Position), reinterpret_cast<XMFLOAT3*>(&v_Pyramid[c].Position), &normal);
-        memcpy(&v_Pyramid[a].Normal, &normal, sizeof(float) * 3);
-        memcpy(&v_Pyramid[b].Normal, &normal, sizeof(float) * 3);
-        memcpy(&v_Pyramid[c].Normal, &normal, sizeof(float) * 3);
-    }
+
+    std::vector<ObjectDrawcall::Vertex> v_Ground = {
+        {{ -0.5f, 0.0f, 0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
+        {{ 0.5f, 0.0f, 0.5f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
+        {{ 0.5f, 0.0f, -0.5f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }},
+        {{ -0.5f, 0.0f, -0.5f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }},
+    };
+
+    std::vector<ObjectDrawcall::Index> i_Ground = {
+        0, 1, 2,
+        0, 2, 3
+    };
+
+    auto GenNormal = [](std::vector<ObjectDrawcall::Vertex>& v, std::vector<ObjectDrawcall::Index>& idx) {
+        for (int i = 0; i < idx.size() / 3; ++i) {
+            uint32_t a = idx[i * 3 + 0];
+            uint32_t b = idx[i * 3 + 1];
+            uint32_t c = idx[i * 3 + 2];
+            XMFLOAT3 normal;
+            GenerateNormal(reinterpret_cast<XMFLOAT3*>(&v[a].Position), reinterpret_cast<XMFLOAT3*>(&v[b].Position), reinterpret_cast<XMFLOAT3*>(&v[c].Position), &normal);
+            memcpy(&v[a].Normal, &normal, sizeof(float) * 3);
+            memcpy(&v[b].Normal, &normal, sizeof(float) * 3);
+            memcpy(&v[c].Normal, &normal, sizeof(float) * 3);
+        }
+    };
+    GenNormal(v_Pyramid, i_Pyramid);
+    GenNormal(v_Ground, i_Ground);
 
     // Create and bind const buffers
     auto scene = resmgr.CreateConstantBuffer<ObjectDrawcall::Scene>("scene");
     auto* p_Scene = scene.value()->GetMapping<ObjectDrawcall::Scene>();
     p_Scene->dotlight_count = 1;
-    p_Scene->dotlight_positions[0] = { 4.0f, 2.0f, 0.0f, 0.0f };
-    p_Scene->dotlight_colors[0] = { 0.5f, 0.4f, 0.4f, 0.0f };
+    p_Scene->dotlight_positions[0] = { 0.0f, 4.0f, 0.0f, 0.0f };
+    p_Scene->dotlight_colors[0] = { 0.7f, 0.7f, 0.7f, 0.0f };
     p_Scene->camera_position = camera.GetCameraPos4();
     camera.MakeViewAndProjection(p_Scene->vp);
     dxfw.GetBindlessHeap().BindConstantBuffer("scene");
+    uint32_t tex_stone_index = dxfw.GetBindlessHeap().QueryResourceIndex("tex_stone");
+    uint32_t tex_metal_index = dxfw.GetBindlessHeap().QueryResourceIndex("tex_metal");
+    uint32_t cb_scene_index = dxfw.GetBindlessHeap().QueryResourceIndex("scene");
 
     // Create Objects
-    ObjectDrawcall pyramid("pyramid", v_Pyramid, CountOf(v_Pyramid), i_Pyramid, CountOf(i_Pyramid), &dxfw, "tex_stone");
-
+    ObjectDrawcall pyramid("pyramid", v_Pyramid, i_Pyramid, &dxfw, tex_metal_index, cb_scene_index);
+    ObjectDrawcall ground("ground", v_Ground, i_Ground, &dxfw, tex_stone_index, cb_scene_index);
+    auto& text_draw = uifw.GetTextDrawcall();
     PerformanceCounter pc;
     RunLoop([&] {
         float delta = pc.DeltaMs();
@@ -174,11 +204,12 @@ int main() {
         km.UpdateFreeCamera(camera);
         camera.MakeViewAndProjection(p_Scene->vp);
         p_Scene->camera_position = camera.GetCameraPos4();
-        render_context.Render([&] {
-            pyramid(0, 0, 0, 1);
-            ui("UbuntuMono", L"Prism Renderer using DirectX12 API", 30, 30, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
-            ui("UbuntuMono", std::format(L"Current FPS: {}", pc.QueryFPS()), 30, 50, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
-            ui("UbuntuMono", L"This is a demo that shows basic pipeline. To learn more, visit https://github.com/youfantan/Prism", 30, 70, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
+        render_context.Render([&](RenderPass& rp) {
+            pyramid(rp, 0, 0, 0, 1);
+            ground(rp, 0, -2, 0, 5);
+            text_draw(rp, "UbuntuMono", L"Prism Renderer using DirectX12 API", 30, 30, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
+            text_draw(rp, "UbuntuMono", std::format(L"Current FPS: {}", pc.QueryFPS()), 30, 50, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
+            text_draw(rp, "UbuntuMono", L"This is a demo that shows basic pipeline. To learn more, visit https://github.com/youfantan/Prism", 30, 70, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
         });
         dxfw.GetCopyQueue().DeferredRelease();
     });

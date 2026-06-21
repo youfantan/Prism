@@ -23,7 +23,7 @@ Device::Device() {
 
 RenderContext::RenderContext(Device& device, RenderQueue& rq, ResourceManager& rm, BindlessHeap& heap, const dx_init_t& init) : device_(device), init_(init), render_queue_(rq), res_mgr_(rm), bindless_heap_(heap), rtv_heap_(device_.GetComPtr(), init.buffer_count), dsv_heap_(device_.GetComPtr(), init.buffer_count), msaa_heap_(device_.GetComPtr(), init.buffer_count) {
         D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS ms_lv;
-        ms_lv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        ms_lv.Format = init.rt_format;
         ms_lv.SampleCount = 4;
         ms_lv.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
         ms_lv.NumQualityLevels = 0;
@@ -32,7 +32,7 @@ RenderContext::RenderContext(Device& device, RenderQueue& rq, ResourceManager& r
         sd.BufferCount = init_.buffer_count;
         sd.Width = init_.width;
         sd.Height = init_.height;
-        sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.Format = init_.rt_format;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         sd.SampleDesc.Count = 1;
@@ -43,16 +43,11 @@ RenderContext::RenderContext(Device& device, RenderQueue& rq, ResourceManager& r
         CHECKHR(sc.As(&swapchain_));
 }
 
-void RenderContext::RecordRenderList(render_callback_t&& rc) {
-        records_.push_back(rc(record_list_));
-}
-
-void RenderContext::Render(std::function<void()>&& callback) {
-        records_.clear();
+void RenderContext::Render(std::function<void(RenderPass&)>&& callback) {
         bindless_heap_.ClearReferencedResources();
         auto& fr = GetCurrentFrameResource();
         auto list = render_queue_.PrepareRenderQueue(swapchain_->GetCurrentBackBufferIndex());
-        record_list_ = list;
+        RenderPass rp(list);
         D3D12_VIEWPORT viewport = { 0.0f, 0.0f, (float)init_.width, (float)init_.height, 0.0f, 1.0f };
         D3D12_RECT scissor_rect = { 0, 0, static_cast<LONG>(init_.width), static_cast<LONG>(init_.height) };
         auto rtv = fr.rtv_handle;
@@ -70,34 +65,36 @@ void RenderContext::Render(std::function<void()>&& callback) {
                 list->OMSetRenderTargets(1, &msaa_rtv, false, &dsv);
                 list->ClearRenderTargetView(msaa_rtv, init_.rt_clear_color, 0, nullptr);
         }
-        callback();
+        callback(rp);
         if (init_.msaa_type != MSAAType::NONE) {
                 fr.msaa_buffer->Transition(D3D12_RESOURCE_STATE_RESOLVE_SOURCE, list);
                 fr.back_buffer->Transition(D3D12_RESOURCE_STATE_RESOLVE_DEST, list);
-                list->ResolveSubresource(fr.back_buffer->GetComPtr().Get(), 0, fr.msaa_buffer->GetComPtr().Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+                list->ResolveSubresource(fr.back_buffer->GetComPtr().Get(), 0, fr.msaa_buffer->GetComPtr().Get(), 0, init_.rt_format);
         }
         fr.back_buffer->Transition(D3D12_RESOURCE_STATE_PRESENT, list);
+
         auto& ref_res = bindless_heap_.GetReferencedResource();
         for (auto& res : ref_res) {
                 res->GetRenderWaitable().GPUWait(render_queue_.GetComPtr());
                 res->GetCopyWaitable().GPUWait(render_queue_.GetComPtr());
         }
-        for (auto& record : records_) {
-                for (auto& res : record.resources) {
-                        res->GetRenderWaitable().GPUWait(render_queue_.GetComPtr());
-                        res->GetCopyWaitable().GPUWait(render_queue_.GetComPtr());
-                }
+        for (auto& res : rp.referenced_resources) {
+                res->GetRenderWaitable().GPUWait(render_queue_.GetComPtr());
+                res->GetCopyWaitable().GPUWait(render_queue_.GetComPtr());
         }
+
         uint64_t fence_value = render_queue_.CommitRenderQueue(swapchain_->GetCurrentBackBufferIndex());
+
         for (auto& res : ref_res) {
                 res->GetRenderWaitable().GetFenceValue() = fence_value;
         }
-        for (auto& record : records_) {
-                record.drawcall->waitable_.GetFenceValue() = fence_value;
-                for (auto& res : record.resources) {
-                        res->GetRenderWaitable().GetFenceValue() = fence_value;
-                }
+        for (auto& res : rp.referenced_resources) {
+                res->GetRenderWaitable().GetFenceValue() = fence_value;
         }
+        for (auto& drawcall : rp.drawcalls) {
+                drawcall->waitable_.GetFenceValue() = fence_value;
+        }
+
         if (init_.enable_vsync) {
                 swapchain_->Present(1, 0);
         } else {

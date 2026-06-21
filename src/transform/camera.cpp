@@ -42,6 +42,13 @@ void KMInput::UpdateFreeCamera(FreeCamera& fc) {
     fc.GetYaw() += cursor_off_x * fc.GetSensitivity();
     float cursor_off_y = static_cast<float>(cursor.y) - cent_y;
     fc.GetPitch() -= cursor_off_y * fc.GetSensitivity();
+    if (fc.GetPitch() > XM_PIDIV2) {
+        fc.GetPitch() = (89.0f / 180.0f) * XM_PI;
+    }
+    if (fc.GetPitch() < -XM_PIDIV2) {
+        fc.GetPitch() = (-89.0f / 180.0f) * XM_PI;
+    }
+
 
     // Keyboard
     LARGE_INTEGER now;

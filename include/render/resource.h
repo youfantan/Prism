@@ -388,7 +388,7 @@ public:
         return map_.QueryResource<RenderTarget>(name);
     }
 
-    std::optional<DepthBuffer*> CreateDepthBuffer(const std::string& name, uint32_t width, uint32_t height, MSAAType type) {
+    std::optional<DepthBuffer*> CreateDepthBuffer(const std::string& name, uint32_t width, uint32_t height, DXGI_FORMAT format, MSAAType type) {
         D3D12_RESOURCE_DESC desc {};
         desc.Alignment = 0;
         desc.Width = width;
@@ -397,12 +397,12 @@ public:
         desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        desc.Format = DXGI_FORMAT_D32_FLOAT;
+        desc.Format = format;
         desc.MipLevels = 1;
         desc.SampleDesc.Count = GetSampleCount(type);
         desc.SampleDesc.Quality = 0;
         D3D12_CLEAR_VALUE optclr {};
-        optclr.Format = DXGI_FORMAT_D32_FLOAT;
+        optclr.Format = format;
         optclr.DepthStencil.Depth = 1.0f;
         optclr.DepthStencil.Stencil = 0;
         ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &optclr);

@@ -15,6 +15,8 @@ using dx_init_t = struct {
     uint32_t buffer_count;
     uint32_t copy_workers_count;
     MSAAType msaa_type;
+    DXGI_FORMAT rt_format;
+    DXGI_FORMAT ds_format;
     float rt_clear_color[4];
     bool enable_vsync;
     std::string shaders_dir;
@@ -74,13 +76,13 @@ struct FrameResource {
         D3D12_CPU_DESCRIPTOR_HANDLE msaa_rtv {};
         if (init.msaa_type != MSAAType::NONE) {
             std::string msaa_buffer_name = "MSAABuffer";
-            auto msaa_buffer = res_mgr.CreateRenderTarget(msaa_buffer_name, DXGI_FORMAT_R8G8B8A8_UNORM, init.width, init.height, init.rt_clear_color, init.msaa_type);
+            auto msaa_buffer = res_mgr.CreateRenderTarget(msaa_buffer_name, init.rt_format, init.width, init.height, init.rt_clear_color, init.msaa_type);
             if (!msaa_buffer.has_value()) {
                 LFATAL("Cannot create {}", msaa_buffer_name);
             }
             msaa_rt = msaa_buffer.value();
             D3D12_RENDER_TARGET_VIEW_DESC mrtv_desc {};
-            mrtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            mrtv_desc.Format = init.rt_format;
             mrtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
             device->CreateRenderTargetView(msaa_buffer.value()->GetComPtr().Get(), &mrtv_desc, msaa_heap.GetCPUHandle(0));
             ResourceView mrtv {};
@@ -95,7 +97,7 @@ struct FrameResource {
             ComPtr<ID3D12Resource> back_buffer_resource;
             swapchain->GetBuffer(i, IID_PPV_ARGS(&back_buffer_resource));
             auto back_buffer = res_mgr.CreateRenderTarget(back_buffer_name, back_buffer_resource);
-            auto depth_buffer = res_mgr.CreateDepthBuffer(depth_buffer_name, init.width, init.height, init.msaa_type);
+            auto depth_buffer = res_mgr.CreateDepthBuffer(depth_buffer_name, init.width, init.height, init.ds_format, init.msaa_type);
             device->CreateRenderTargetView(back_buffer.value()->GetComPtr().Get(), nullptr, rtv_heap.GetCPUHandle(i));
             ResourceView rtv {};
             rtv.type = ResourceViewType::RTV;
@@ -116,12 +118,6 @@ class RenderContext {
     requires std::derived_from<Allocator, DXAllocator>
     friend class DXFramework;
 public:
-    struct record_t {
-        Drawcall* drawcall;
-        std::vector<Resource*> resources;
-    };
-
-    using render_callback_t = std::function<record_t(ComPtr<ID3D12GraphicsCommandList>)>;
 private:
     Device& device_;
     const dx_init_t& init_;
@@ -134,12 +130,10 @@ private:
     RTVHeap rtv_heap_;
     RTVHeap msaa_heap_;
     ComPtr<ID3D12GraphicsCommandList> record_list_;
-    std::vector<record_t> records_;
 public:
     RenderContext(Device& device, RenderQueue& rq, ResourceManager& rm, BindlessHeap& heap, const dx_init_t& init);
 
-    void RecordRenderList(render_callback_t&& rc);
-    void Render(std::function<void()>&& callback);
+    void Render(std::function<void(RenderPass&)>&& callback);
 
     ComPtr<ID3D12Device>& GetDevice() {
         return device_.GetComPtr();
@@ -149,8 +143,6 @@ public:
         return frame_resources_[swapchain_->GetCurrentBackBufferIndex()];
     }
 };
-
-class ObjectDrawcall;
 
 template<typename Allocator>
 requires std::derived_from<Allocator, DXAllocator>
@@ -174,6 +166,10 @@ public:
 
     const dx_init_t& GetInitializeParams() const {
         return init_;
+    }
+
+    Device& GetDevice() {
+        return device_;
     }
 
     DXAllocator* GetAllocator() {
@@ -211,9 +207,11 @@ public:
     class ObjectDrawcall;
 };
 
+
+
 template<typename Allocator>
 requires std::derived_from<Allocator, DXAllocator>
-class DXFramework<Allocator>::ObjectDrawcall {
+class DXFramework<Allocator>::ObjectDrawcall : Drawcall {
 public:
     struct Vertex {
         struct {
@@ -237,6 +235,7 @@ public:
     struct ObjectPresets {
         XMFLOAT4X4 world;
         uint32_t texture_index;
+        uint32_t scene_index;
     };
 
     struct Scene {
@@ -250,18 +249,19 @@ public:
 
 private:
     std::string object_name_;
-    std::vector<Vertex> vertices_;
-    std::vector<Index> indices_;
     DXFramework* dxfw_;
     object_params_t op_ {};
-    Lazy<Drawcall> drawcall_;
     ConstantBuffer* presets_;
+    VertexBuffer* vb_;
+    IndexBuffer* ib_;
     std::string presets_name_;
     std::string vertex_buffer_name_;
     std::string index_buffer_name_;
+    uint32_t tex_index_;
+    uint32_t scene_index_;
 public:
-    ObjectDrawcall(const std::string& object_name, std::vector<Vertex>&& vertices, std::vector<Index>&& indices, DXFramework* dxfw, const std::string& tex_name)
-    : object_name_(object_name), vertices_(std::move(vertices)), indices_(std::move(indices)), dxfw_(dxfw) {
+    ObjectDrawcall(const std::string& object_name, const std::vector<Vertex>& vertices, const std::vector<Index>& indices, DXFramework* dxfw, uint32_t tex_index, uint32_t scene_index)
+    : Drawcall(dxfw->GetDevice().GetComPtr(), dxfw->GetRenderQueue(), dxfw->GetBindlessHeap(), dxfw->GetResourceManager()), object_name_(object_name), dxfw_(dxfw), tex_index_(tex_index), scene_index_(scene_index) {
         auto vs = dxfw->GetShaderLoader().CompileShader("object", ShaderType::VertexShader);
         auto ps = dxfw->GetShaderLoader().CompileShader("object", ShaderType::PixelShader);
         const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
@@ -269,25 +269,26 @@ public:
             { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
             { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
         };
-        StaticSamplers ssamplers;
-        ssamplers.Add(StaticSamplers::LINEAR_FILTER(0));
-        DrawcallResource drawres = {
-            .vs_bytecode = vs.blob,
-            .ps_bytecode = ps.blob,
-            .rasterizer_desc = DefaultRasterizerDesc,
-            .blend_desc = DefaultBlendDesc,
-            .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
-            .iv_layout = {iv_layout, 3},
-            .samplers = ssamplers
-        };
+        pso_desc_.InputLayout = { iv_layout, CountOf(iv_layout) };
+        pso_desc_.VS = {vs.blob->GetBufferPointer(), vs.blob->GetBufferSize()};
+        pso_desc_.PS = {ps.blob->GetBufferPointer(), ps.blob->GetBufferSize()};
+        pso_desc_.SampleDesc.Count = GetSampleCount(dxfw_->GetInitializeParams().msaa_type);
+        pso_desc_.SampleDesc.Quality = 0;
+        pso_desc_.NumRenderTargets = 1;
+        pso_desc_.RTVFormats[0] = dxfw_->GetInitializeParams().rt_format;
+        pso_desc_.DSVFormat = dxfw_->GetInitializeParams().ds_format;
+        pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+        pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pso_desc_.SampleMask = UINT_MAX;
+        samplers_.Add(StaticSamplers::LINEAR_FILTER(0));
+        Drawcall::BuildPipeline();
+
         presets_name_ = std::format("{}_presets", object_name_);
         vertex_buffer_name_ = std::format("{}_vertex_buffer", object_name_);
         index_buffer_name_ = std::format("{}_index_buffer", object_name_);
-        drawcall_.Construct(dxfw_->GetRenderContext().GetDevice(), dxfw_->GetRenderContext(), dxfw_->GetBindlessHeap(), drawres);
         auto presets_create = dxfw_->GetResourceManager().CreateConstantBuffer<ObjectPresets>(presets_name_);
-        auto vertex_buffer_create = dxfw_->GetResourceManager().CreateVertexBuffer(vertex_buffer_name_, &vertices_[0], vertices_.size());
-        auto index_buffer_create = dxfw_->GetResourceManager().CreateIndexBuffer(index_buffer_name_, &indices[0], indices_.size());
+        auto vertex_buffer_create = dxfw_->GetResourceManager().CreateVertexBuffer(vertex_buffer_name_, &vertices[0], vertices.size());
+        auto index_buffer_create = dxfw_->GetResourceManager().CreateIndexBuffer(index_buffer_name_, &indices[0], indices.size());
         if (!presets_create.has_value()) {
             LFATAL("Cannot create Object Presets constant buffer while make object drawcall {}", object_name_);
         }
@@ -297,65 +298,21 @@ public:
         if (!index_buffer_create.has_value()) {
             LFATAL("Cannot create index buffer while make object drawcall {}", object_name_);
         }
+        vb_ = vertex_buffer_create.value();
+        ib_ = index_buffer_create.value();
         presets_ = presets_create.value();
-        presets_->GetMapping<ObjectPresets>()->texture_index = dxfw_->GetBindlessHeap().QueryResourceIndex(tex_name);
+        presets_->GetMapping<ObjectPresets>()->texture_index = tex_index_;
+        presets_->GetMapping<ObjectPresets>()->scene_index = scene_index_;
     }
 
-    ObjectDrawcall(const std::string& object_name, Vertex* vertices, size_t vertices_count, Index* indices, size_t indices_count, DXFramework* dxfw, const std::string& tex_name)
-    : object_name_(object_name), vertices_(vertices_count), indices_(indices_count), dxfw_(dxfw) {
-        memcpy(&vertices_[0], vertices, sizeof(Vertex) * vertices_count);
-        memcpy(&indices_[0], indices, sizeof(Index) * indices_count);
-        auto vs = dxfw->GetShaderLoader().CompileShader("object", ShaderType::VertexShader);
-        auto ps = dxfw->GetShaderLoader().CompileShader("object", ShaderType::PixelShader);
-        const D3D12_INPUT_ELEMENT_DESC iv_layout[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-        };
-        StaticSamplers ssamplers;
-        ssamplers.Add(StaticSamplers::LINEAR_FILTER(0));
-        DrawcallResource drawres = {
-            .vs_bytecode = vs.blob,
-            .ps_bytecode = ps.blob,
-            .rasterizer_desc = DefaultRasterizerDesc,
-            .blend_desc = DefaultBlendDesc,
-            .ds_desc = DefaultDepthStencilDesc,
-            .sample_desc = {GetSampleCount(dxfw_->GetInitializeParams().msaa_type), 0},
-            .iv_layout = {iv_layout, 3},
-            .samplers = ssamplers
-        };
-        presets_name_ = std::format("{}_presets", object_name_);
-        vertex_buffer_name_ = std::format("{}_vertex_buffer", object_name_);
-        index_buffer_name_ = std::format("{}_index_buffer", object_name_);
-        drawcall_.Construct(dxfw_->GetRenderContext().GetDevice(), dxfw_->GetRenderQueue(), dxfw_->GetBindlessHeap(), dxfw_->GetResourceManager(), drawres);
-        auto presets_create = dxfw_->GetResourceManager().CreateConstantBuffer<ObjectPresets>(std::format("{}_presets", object_name_));
-        auto vertex_buffer_create = dxfw_->GetResourceManager().CreateVertexBuffer(std::format("{}_vertex_buffer", object_name_), &vertices_[0], vertices_.size());
-        auto index_buffer_create = dxfw_->GetResourceManager().CreateIndexBuffer(std::format("{}_index_buffer", object_name_), &indices[0], indices_.size());
-        if (!presets_create.has_value()) {
-            LFATAL("Cannot create Object Presets constant buffer while make object drawcall {}", object_name_);
-        }
-        if (!vertex_buffer_create.has_value()) {
-            LFATAL("Cannot create vertex buffer while make object drawcall {}", object_name_);
-        }
-        if (!index_buffer_create.has_value()) {
-            LFATAL("Cannot create index buffer while make object drawcall {}", object_name_);
-        }
-        presets_ = presets_create.value();
-        presets_->GetMapping<ObjectPresets>()->texture_index = dxfw_->GetBindlessHeap().QueryResourceIndex(tex_name);
-        auto* presets = GetObjectPresets();
-    }
     ObjectPresets* GetObjectPresets() {
         return presets_->GetMapping<ObjectPresets>();
     }
 
-    void operator()(float x, float y, float z, float size) {
+    void operator()(RenderPass& rp, float x, float y, float z, float size) {
         op_.position = { x, y, z };
         op_.size = { size, size, size };
         MakeWorld(op_, presets_->GetMapping<ObjectPresets>()->world);
-        drawcall_.Get()(dxfw_->GetRenderContext(), presets_name_, vertex_buffer_name_, index_buffer_name_);
-    }
-
-    ~ObjectDrawcall() {
-
+        Draw(rp, presets_, vb_, ib_);
     }
 };
