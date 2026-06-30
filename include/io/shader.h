@@ -5,75 +5,108 @@
 #include <utils.h>
 
 #include <format>
+#include <filesystem>
+#include <json.hpp>
 
-class ShaderLoader
+using nlohmann::json;
+
+namespace Prism
 {
-public:
-    using shader_in_memory_t = struct {
-        ComPtr<IDxcBlob> blob;
-        ShaderType type;
-    };
-
+    class ShaderLoader {
 private:
     std::string prefix_;
+    std::string cache_dir_;
+
+    struct ShaderSrc {
+        std::string name;
+        ShaderType type;
+        std::string path;
+        std::string profile;
+        std::string entry;
+    };
+
+    struct ShaderCache {
+        std::string path;
+        std::string src_hash;
+    };
+
     ComPtr<IDxcCompiler3> compiler_;
     ComPtr<IDxcUtils> utils_;
+    ComPtr<IDxcLibrary> library_;
+    std::unordered_map<std::string, std::string> shader_binaries_;
 
-    std::string GetShaderTypeExtension(ShaderType type) {
-        switch (type) {
-            case ShaderType::VertexShader :
-                return "vs";
-            case ShaderType::PixelShader:
-                return "ps";
+    ShaderType ParseType(const std::string& str) {
+        if (str == "vs") {
+            return ShaderType::VertexShader;
+        }
+        if (str == "ps") {
+            return ShaderType::PixelShader;
+        }
+        return ShaderType::Unknown;
+    }
+
+    std::string ParseType(ShaderType type) {
+        if (type == ShaderType::VertexShader) {
+            return "vs";
+        }
+        if (type == ShaderType::PixelShader) {
+            return "ps";
         }
         return "unknown";
     }
-
-    std::wstring GetShaderTypeTargetString(ShaderType type) {
-        switch (type) {
-            case ShaderType::VertexShader :
-                return L"vs_6_6";
-            case ShaderType::PixelShader:
-                return L"ps_6_6";
-        }
-        return L"unknown";
-    }
 public:
-    ShaderLoader(std::string_view prefix) : prefix_(prefix) {
+    ShaderLoader(const std::string& prefix) : prefix_(prefix) {
         DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler_));
         DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils_));
-
-    }
-/*
- *  Old D3DCompiler
-    shader_in_memory_t CompileShader(std::string_view shader_name, ShaderType type) {
-        std::string shader_path = std::format("{}/{}.{}.hlsl", prefix_, shader_name, GetShaderTypeExtension(type));
-        LDEBUG("Loading shader {}({}) into memory", shader_name, shader_path);
-        std::string shader_src = ReadFileIntoString(shader_path).value();
-        ComPtr<ID3DBlob> binary, error;
-        HRESULT r = D3DCompile(shader_src.data(), shader_src.size(), nullptr, nullptr, nullptr, "main", GetShaderTypeTargetString(type).c_str(), 0, 0, &binary, &error);
-        if (!SUCCEEDED(r)) {
-            LFATAL("Cannot compile shader{}({}), because: {}", shader_name, shader_path, static_cast<const char*>(error->GetBufferPointer()));
+        DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library_));
+        cache_dir_ = std::format("{}/caches", prefix_);
+        std::string index_file = std::format("{}/shaders.json", prefix_);
+        std::filesystem::directory_entry cache_dir(cache_dir_);
+        if (!cache_dir.exists()) {
+            std::filesystem::create_directory(cache_dir);
         }
-        return { binary, type };
+        std::ifstream findex(index_file, std::ios::in | std::ios::binary);
+        json index = json::parse(findex);
+        std::vector<ShaderSrc> shader_srcs;
+        auto shaders = index["Shaders"];
+        for (auto& shader : shaders) {
+            auto& src = shader_srcs.emplace_back(shader["name"], ParseType(static_cast<std::string>(shader["type"])), shader["path"], shader["profile"], shader["entry"]);
+            std::string file_src = ReadFileIntoString(prefix_ + "/" + src.path).value();
+            std::string sha256 = CalcSHA256HexDigest(file_src);
+            std::string out_binary_file = std::format("{}/caches/{}.{}.cache", prefix_, src.name, static_cast<std::string>(shader["type"]));
+            std::string unified_key = std::format("{}.{}", static_cast<std::string>(shader["name"]), static_cast<std::string>(shader["type"]));
+            if (!shader.contains("sha256")) {
+                shader_binaries_[unified_key] = CompileShader(src, out_binary_file);
+                shader["cache_file"] = out_binary_file;
+                shader["sha256"] = sha256;
+            } else if (shader["sha256"] != sha256) {
+                shader_binaries_[unified_key] = CompileShader(src, shader["cache_file"]);
+                shader["sha256"] = sha256;
+            } else {
+                LINFO("Loaded shader {}({}) by cache file {}", src.name, src.path, static_cast<std::string>(shader["cache_file"]));
+                shader_binaries_[unified_key] = ReadFileIntoString(shader["cache_file"]).value();
+            }
+        }
+        std::ofstream oindex(index_file, std::ios::out | std::ios::binary);
+        oindex << index.dump();
     }
-*/
-    shader_in_memory_t CompileShader(std::string_view shader_name, ShaderType type) {
-        std::string shader_path = std::format("{}/{}.{}.hlsl", prefix_, shader_name, GetShaderTypeExtension(type));
-        LDEBUG("Compiling shader {}({})", shader_name, shader_path);
-        std::wstring wshader_path = ConvertStringToWstring(shader_path);
-        std::wstring profile = GetShaderTypeTargetString(type);
+
+    std::string CompileShader(ShaderSrc& src, const std::string& output_path) {
+        LINFO("Compiling shader {}({})", src.name, src.path);
+        auto profile = ConvertStringToWstring(src.profile);
+        auto entry = ConvertStringToWstring(src.entry);
+        auto path = ConvertStringToWstring(prefix_ + "/" + src.path);
         std::vector args = {
             L"-T", profile.c_str(),
-            L"-E", L"main",
-            wshader_path.c_str()
+            L"-E", entry.c_str(),
+            path.c_str()
         };
-        ComPtr<IDxcBlobEncoding> src;
-        utils_->LoadFile(ConvertStringToWstring(shader_path).c_str(), nullptr, &src);
+        ComPtr<IDxcBlobEncoding> file_src;
+        utils_->LoadFile(path.c_str(), nullptr, &file_src);
         DxcBuffer dbuffer {};
         dbuffer.Encoding = DXC_CP_UTF8;
-        dbuffer.Ptr = src->GetBufferPointer();
-        dbuffer.Size = src->GetBufferSize();
+        dbuffer.Ptr = file_src->GetBufferPointer();
+        dbuffer.Size = file_src->GetBufferSize();
         ComPtr<IDxcResult> result;
         compiler_->Compile(&dbuffer, &args[0], args.size(), nullptr, IID_PPV_ARGS(&result));
         HRESULT r;
@@ -81,15 +114,26 @@ public:
         if (!SUCCEEDED(r)) {
             ComPtr<IDxcBlobUtf8> err_blob;
             result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&err_blob), nullptr);
-            LFATAL("Cannot compile shader{}({}), because: {}", shader_name, shader_path, static_cast<const char*>(err_blob->GetBufferPointer()));
+            LFATAL("Cannot compile shader{}({}), because: {}", src.name, src.path, static_cast<const char*>(err_blob->GetBufferPointer()));
             exit(EXIT_FAILURE);
         }
         ComPtr<IDxcBlob> output;
         r = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&output), nullptr);
         if (!SUCCEEDED(r)) {
-            LFATAL("Cannot get the compile result of the shader{}({})", shader_name, shader_path);
+            LFATAL("Cannot get the compile result of the shader{}({})", src.name, src.path);
             exit(EXIT_FAILURE);
         }
-        return { output, type };
+        std::string out_binary(static_cast<const char*>(output->GetBufferPointer()), output->GetBufferSize());
+        WriteStringToFile(out_binary, output_path);
+        return { static_cast<const char*>(output->GetBufferPointer()), output->GetBufferSize() };
+    }
+
+    std::optional<std::pair<void*, size_t>> LoadShader(const std::string& name, ShaderType type) {
+        std::string unified_key = std::format("{}.{}", name, ParseType(type));
+        if (!shader_binaries_.contains(unified_key)) return std::nullopt;
+        auto& result = shader_binaries_[unified_key];
+        return std::make_pair(reinterpret_cast<void*>(result.data()), result.size());
     }
 };
+
+}

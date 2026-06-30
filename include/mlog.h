@@ -4,6 +4,7 @@
 #include <source_location>
 #include <string>
 #include <chrono>
+#include <filesystem>
 
 enum class log_level
 {
@@ -39,23 +40,19 @@ void log(std::source_location location, const std::string& format, Args&&... arg
 {
     std::string prefix;
     std::string color;
-    if constexpr (lv == log_level::info)
-    {
+    if constexpr (lv == log_level::info) {
         prefix = "INFO";
         color = "\033[37m";
     }
-    if constexpr (lv == log_level::debug)
-    {
+    if constexpr (lv == log_level::debug) {
         prefix = "DEBUG";
         color = "\033[32m";
     }
-    if constexpr (lv == log_level::error)
-    {
+    if constexpr (lv == log_level::error) {
         prefix = "ERROR";
         color = "\033[31m";
     }
-    if constexpr (lv == log_level::fatal)
-    {
+    if constexpr (lv == log_level::fatal) {
         prefix = "FATAL";
         color = "\033[31m";
     }
@@ -77,6 +74,10 @@ void log(std::source_location location, const std::string& format, Args&&... arg
 
 inline int mlog_sth_init(const mlog_sth_init_t& init)
 {
+    std::filesystem::directory_entry log_dir(init.log_directory);
+    if (!log_dir.exists()) {
+        std::filesystem::create_directory(log_dir);
+    }
     std::string path = init.log_directory + "/" + init.log_file_name;
     mlog_ctx.logstdout = stdout;
     mlog_ctx.logfile = fopen(path.c_str(), "w+");
@@ -118,6 +119,10 @@ inline bool mlog_enable_win32_vansi() {
 #endif
 
 #define LINFO(fmt, ...) log<log_level::info>(std::source_location::current(), fmt, ##__VA_ARGS__)
+#ifndef NDEBUG
 #define LDEBUG(fmt, ...) log<log_level::debug>(std::source_location::current(), fmt, ##__VA_ARGS__)
+#else
+#define LDEBUG(fmt, ...)
+#endif
 #define LERROR(fmt, ...) log<log_level::error>(std::source_location::current(), fmt, ##__VA_ARGS__)
-#define LFATAL(fmt, ...) log<log_level::fatal>(std::source_location::current(), fmt, ##__VA_ARGS__)
+#define LFATAL(fmt, ...) { log<log_level::fatal>(std::source_location::current(), fmt, ##__VA_ARGS__); exit(EXIT_FAILURE); }

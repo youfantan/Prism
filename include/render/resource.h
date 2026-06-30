@@ -1,46 +1,181 @@
 #pragma once
 
 #include <base.h>
+
 #include <mlog.h>
 #include <utils.h>
+
 #include <render/queue.h>
-#include <io/texture.h>
+#include <render/sync.h>
 
-#include <unordered_map>
-#include <optional>
+namespace Prism
+{
+    class DXDefaultAllocator : public DXAllocator {
+    public:
 
-#include "io/image.h"
+        explicit DXDefaultAllocator(const ComPtr<ID3D12Device>& device) : DXAllocator(device) {
+
+        }
+
+        ID3D12Resource* CreateLocalResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states, D3D12_CLEAR_VALUE* pclr) override {
+            ID3D12Resource* res;
+            D3D12_HEAP_PROPERTIES prop {
+                .Type = D3D12_HEAP_TYPE_UPLOAD,
+                .CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                .MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
+                .CreationNodeMask = 1,
+                .VisibleNodeMask = 1
+            };
+            device_->CreateCommittedResource(
+                &prop,
+                D3D12_HEAP_FLAG_NONE,
+                &desc,
+                states,
+                pclr,
+                IID_PPV_ARGS(&res)
+            );
+            return res;
+        }
+
+        ID3D12Resource* CreateRemoteResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES states, D3D12_CLEAR_VALUE* pclr) override {
+            ID3D12Resource* res;
+            D3D12_HEAP_PROPERTIES prop {
+                .Type = D3D12_HEAP_TYPE_DEFAULT,
+                .CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                .MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
+                .CreationNodeMask = 1,
+                .VisibleNodeMask = 1
+            };
+            device_->CreateCommittedResource(
+                &prop,
+                D3D12_HEAP_FLAG_NONE,
+                &desc,
+                states,
+                pclr,
+                IID_PPV_ARGS(&res)
+            );
+            return res;
+        }
+        void FreeResource(ID3D12Resource* resource) override {
+            UINT size = 0;
+            resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
+            std::wstring name;
+            if (size == 0) {
+                name = L"Unnamed Object";
+            } else {
+                name.resize(size / sizeof(wchar_t));
+                resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
+            }
+            LDEBUG("Resource {} is released", ConvertWstringToString(name));
+            resource->Release();
+        }
+
+        ~DXDefaultAllocator() noexcept override {
+
+        }
+};
 
 class Resource {
-protected:
-    ResourceType type_;
-    std::string name_;
-    ComPtr<ID3D12Resource> resource_;
-    Waitable render_waitable_;
-    Waitable copy_waitable_;
-    D3D12_RESOURCE_STATES states_;
-    DXAllocator* allocator_;
-    Resource(ResourceType type, std::string&& name, ComPtr<ID3D12Resource> resource, DXAllocator* allocator, D3D12_RESOURCE_STATES states, Waitable&& render_waitable, Waitable&& copy_waitable) : type_(type), name_(std::move(name)), resource_(resource), allocator_(allocator), states_(states), render_waitable_(std::move(render_waitable)), copy_waitable_(std::move(copy_waitable)) {
-        resource_->SetName(ConvertStringToWstring(name_.c_str()).c_str());
-    }
-    Resource(const Resource&) = delete;
-    Resource(Resource&& r) noexcept : type_(r.type_), resource_(std::move(r.resource_)), render_waitable_(std::move(r.render_waitable_)), copy_waitable_(std::move(r.copy_waitable_)), states_(r.states_), allocator_(r.allocator_) {
-
-    }
 public:
-    ResourceType GetResourceType() {
-        return type_;
+    constexpr static size_t WAITABLE_COUNT = 2;
+    constexpr static size_t RENDER_WAITABLE_INDEX = 0;
+    constexpr static size_t COPY_WAITABLE_INDEX = 1;
+
+    enum class HeapType {
+        UPLOAD,
+        DEFAULT,
+        READBACK,
+    };
+    union ResourceMeta {
+        struct {
+            HeapType type;
+            size_t element_size;
+            size_t element_count;
+        } Buffer;
+        struct {
+            size_t stride;
+            uint32_t bind_index;
+        } Tex2D;
+    };
+protected:
+    DXAllocator* allocator_;
+    ID3D12Resource* resource_;
+    WaitableSet<WAITABLE_COUNT> waitable_set_;
+    D3D12_RESOURCE_STATES states_;
+    ResourceMeta meta_;
+public:
+    Resource(const std::string& name, DXAllocator* allocator, const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws, D3D12_CLEAR_VALUE* clr = nullptr) : allocator_(allocator), states_(initial_states), waitable_set_(std::move(ws)), meta_(meta) {
+        if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+            if (meta.Buffer.type == HeapType::UPLOAD) {
+                resource_ = allocator_->CreateLocalResource(desc, states_, clr);
+            } else if (meta.Buffer.type == HeapType::DEFAULT) {
+                resource_ = allocator_->CreateRemoteResource(desc, states_, clr);
+            }
+        } else if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) {
+            resource_ = allocator_->CreateRemoteResource(desc, states_, clr);
+        } else {
+            LFATAL("Cannot create resource {}: unexcepted construct args", name);
+        }
+        resource_->SetName(ConvertStringToWstring(name).c_str());
     }
 
-    const std::string& GetName() {
-        return name_;
+    Resource(const std::string& name, DXAllocator* allocator, ID3D12Resource* res, D3D12_RESOURCE_STATES current_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws) : allocator_(allocator), states_(current_states), waitable_set_(std::move(ws)), meta_(meta), resource_(res) {
+        resource_->SetName(ConvertStringToWstring(name).c_str());
     }
+
+    Resource(const Resource&) = delete;
+    Resource(Resource&& r) : allocator_(r.allocator_), resource_(r.resource_), waitable_set_(std::move(r.waitable_set_)), states_(r.states_), meta_(r.meta_) {
+        r.allocator_ = nullptr;
+        r.resource_ = nullptr;
+    }
+
+    std::string GetResourceName() {
+        UINT size = 0;
+        resource_->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
+        std::wstring name;
+        if (size == 0) {
+            name = L"Unnamed Object";
+        } else {
+            name.resize(size / sizeof(wchar_t));
+            resource_->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
+        }
+        return ConvertWstringToString(name);
+    }
+
+    ResourceMeta& GetResourceMeta() {
+        return meta_;
+    }
+
+    ID3D12Resource* GetD3D12Resource() {
+        return resource_;
+    }
+
+    Waitable& GetRenderWaitable() {
+        return waitable_set_.Get<RENDER_WAITABLE_INDEX>();
+    }
+
+    Waitable& GetCopyWaitable() {
+        return waitable_set_.Get<COPY_WAITABLE_INDEX>();
+    }
+
+    void RenderGPUSync(uint64_t fence_value) {
+        GetRenderWaitable().GPUWait();
+        GetCopyWaitable().CPUWait();
+        GetRenderWaitable().GetFenceValue() = fence_value;
+    }
+
+    void CopyGPUSync(uint64_t fence_value) {
+        GetRenderWaitable().GPUWait();
+        GetCopyWaitable().CPUWait();
+        GetCopyWaitable().GetFenceValue() = fence_value;
+    }
+
     void Transition(D3D12_RESOURCE_STATES new_state, ComPtr<ID3D12GraphicsCommandList>& list) {
         D3D12_RESOURCE_BARRIER barrier {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
         D3D12_RESOURCE_TRANSITION_BARRIER transition {};
-        barrier.Transition.pResource = resource_.Get();
+        barrier.Transition.pResource = resource_;
         barrier.Transition.StateBefore = states_;
         barrier.Transition.StateAfter = new_state;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -48,617 +183,413 @@ public:
         states_ = new_state;
     }
 
-    template<typename T>
-    requires std::derived_from<T, Resource>
-    T* GetAs() {
-        if (type_ != T::type) {
-            return nullptr;
-        }
-        return reinterpret_cast<T*>(this);
-    }
-
-    ComPtr<ID3D12Resource> GetComPtr() {
-        return resource_;
-    }
-
-    Waitable& GetCopyWaitable() {
-        return copy_waitable_;
-    }
-
-    Waitable& GetRenderWaitable() {
-        return render_waitable_;
-    }
-
-    virtual ~Resource() {
+    ~Resource() {
         if (resource_ != nullptr) {
-            render_waitable_.CPUWait();
-            copy_waitable_.CPUWait();
+            GetRenderWaitable().CPUWait();
+            GetCopyWaitable().CPUWait();
             allocator_->FreeResource(resource_);
         }
     }
-};
 
-struct ResourceView {
-    ResourceViewType type;
-    union {
-        D3D12_VERTEX_BUFFER_VIEW vb_view;
-        D3D12_INDEX_BUFFER_VIEW ib_view;
-        D3D12_CPU_DESCRIPTOR_HANDLE handle;
-    } data;
-};
-
-class ConstantBuffer : public Resource {
-private:
-    void* mapping_;
-public:
-    constexpr static ResourceType Type = ResourceType::ConstBuffer;
-
-    ConstantBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)), mapping_(nullptr) {
-        resource_->Map(0, nullptr, &mapping_);
-    }
-    ConstantBuffer(const ConstantBuffer&) = delete;
-    ConstantBuffer(ConstantBuffer&& cb) noexcept : Resource(std::move(*this)), mapping_(cb.mapping_) {
-        cb.mapping_ = nullptr;
-    }
-
-    template<typename T>
-    T* GetMapping() {
-        return static_cast<T*>(mapping_);
-    }
-
-    ~ConstantBuffer() override {
-        if (mapping_ != nullptr) {
-            resource_->Unmap(0, nullptr);
+    static bool CopyToRemoteBuffer(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest) {
+        // type validation
+        if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+            && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+            && src->GetResourceMeta().Buffer.type == HeapType::UPLOAD
+            && dest->GetResourceMeta().Buffer.type == HeapType::DEFAULT
+            && src->GetResourceMeta().Buffer.element_count * src->GetResourceMeta().Buffer.element_size <= dest->GetResourceMeta().Buffer.element_count * dest->GetResourceMeta().Buffer.element_size
+            ) {
+            copy_dispatcher.PostRecordTask({{[=](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                src->CopyGPUSync(nfv);
+                dest->CopyGPUSync(nfv);
+                list->CopyResource(dest->GetD3D12Resource(), src->GetD3D12Resource());
+            }, [&] {}}});
+            return true;
         }
+        LFATAL("Cannot copy buffer {} to remote buffer {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
+        return false;
+    }
+
+    static bool CopyToTexture(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
+        // type validation
+        if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+            && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+            && src->GetResourceMeta().Buffer.type == HeapType::UPLOAD) {
+            copy_dispatcher.PostRecordTask({{[=](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                D3D12_TEXTURE_COPY_LOCATION src_loc {};
+                src_loc.pResource = src->GetD3D12Resource();
+                src_loc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                src_loc.PlacedFootprint = footprint;
+                D3D12_TEXTURE_COPY_LOCATION dest_loc {};
+                dest_loc.pResource = dest->GetD3D12Resource();
+                dest_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dest_loc.SubresourceIndex = 0;
+                src->CopyGPUSync(nfv);
+                dest->CopyGPUSync(nfv);
+                list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
+            }, [] {}}});
+            return true;
+        }
+        LFATAL("Cannot copy buffer {} to texture {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
+        return false;
     }
 };
 
-class StructuredBuffer : public Resource {
-private:
-    CopyQueue* queue_;
-    size_t struct_size_;
-public:
-    constexpr static ResourceType Type = ResourceType::StructuredBuffer;
-
-    StructuredBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource, size_t struct_size, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)), queue_(&queue), struct_size_(struct_size) {
-
-    }
-    StructuredBuffer(const StructuredBuffer&) = delete;
-    StructuredBuffer(StructuredBuffer&& sb) noexcept : Resource(std::move(*this)), queue_(sb.queue_), struct_size_(sb.struct_size_) {
-        sb.queue_ = nullptr;
-        sb.struct_size_ = 0;
-    }
-
-    size_t GetStructureSize() {
-        return struct_size_;
-    }
-
-    void CopyToBuffer(UploadBuffer& ub) {
-        queue_->CopyBuffer(this, ub);
-    }
-};
-
-class Texture : public Resource {
-private:
-    CopyQueue* queue_;
-public:
-    constexpr static ResourceType Type = ResourceType::Texture;
-
-    Texture(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)), queue_(&queue) {
-
-    }
-
-    void CopyToTexture(UploadBuffer& tex, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
-        queue_->CopyTexture(this, tex, footprint);
-    }
-};
-
-class RenderTarget : public Resource {
-private:
-public:
-    constexpr static ResourceType Type = ResourceType::RenderTarget;
-
-    RenderTarget(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)) {
-
-    }
-};
-
-class DepthBuffer : public Resource {
-private:
-public:
-    constexpr static ResourceType Type = ResourceType::DepthBuffer;
-
-    DepthBuffer(std::string name, DXAllocator* allocator, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_DEPTH_WRITE, std::move(render_waitable), std::move(copy_waitable)) {
-
-    }
-};
-
-class VertexBuffer : public Resource {
-private:
-    CopyQueue* queue_;
-public:
-    constexpr static ResourceType Type = ResourceType::VertexBuffer;
-
-    VertexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)), queue_(&queue) {
-
-    }
-
-    void CopyToBuffer(UploadBuffer& ub) {
-        queue_->CopyBuffer(this, ub);
-    }
-};
-
-class IndexBuffer : public Resource {
-private:
-    CopyQueue* queue_;
-public:
-    constexpr static ResourceType Type = ResourceType::IndexBuffer;
-
-    IndexBuffer(std::string name, DXAllocator* allocator, CopyQueue& queue, ComPtr<ID3D12Resource> resource, Waitable&& render_waitable, Waitable&& copy_waitable) : Resource(Type, std::move(name), std::move(resource), allocator, D3D12_RESOURCE_STATE_COMMON, std::move(render_waitable), std::move(copy_waitable)), queue_(&queue) {
-
-    }
-
-    void CopyToBuffer(UploadBuffer& ub) {
-        queue_->CopyBuffer(this, ub);
-    }
-
-};
+using ResourceHandle = Resource*;
 
 template<D3D12_DESCRIPTOR_HEAP_TYPE TYPE>
 class DescriptorHeap {
 protected:
-    D3D12_DESCRIPTOR_HEAP_DESC desc_;
-    size_t size_;
-    size_t elem_;
+    ComPtr<ID3D12Device> device_;
+    uint32_t capacity_;
     ComPtr<ID3D12DescriptorHeap> heap_;
+    size_t increment_;
 public:
-    DescriptorHeap(ComPtr<ID3D12Device>& device, size_t size, D3D12_DESCRIPTOR_HEAP_FLAGS flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE) : size_(size), desc_() {
-        desc_.Type = TYPE;
-        desc_.NumDescriptors = size_;
-        desc_.Flags = flags;
-        device->CreateDescriptorHeap(&desc_, IID_PPV_ARGS(&heap_));
-        elem_ = device->GetDescriptorHandleIncrementSize(TYPE);
+    DescriptorHeap(ComPtr<ID3D12Device> device, uint32_t capacity, D3D12_DESCRIPTOR_HEAP_FLAGS flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE) : device_(device), capacity_(capacity) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {
+            .Type = TYPE,
+            .NumDescriptors = capacity_,
+            .Flags = flags,
+            .NodeMask = 0
+        };
+        device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_));
+        increment_ = device->GetDescriptorHandleIncrementSize(TYPE);
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(size_t i) {
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(uint64_t i) {
         D3D12_CPU_DESCRIPTOR_HANDLE handle = heap_->GetCPUDescriptorHandleForHeapStart();
-        handle.ptr += i * elem_;
+        handle.ptr += i * increment_;
         return handle;
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE GetGPUHandle(size_t i) {
+    D3D12_GPU_DESCRIPTOR_HANDLE GetGPUHandle(uint64_t i) {
         D3D12_GPU_DESCRIPTOR_HANDLE handle = heap_->GetGPUDescriptorHandleForHeapStart();
-        handle.ptr += i * elem_;
+        handle.ptr += i * increment_;
         return handle;
     }
 
-    ComPtr<ID3D12DescriptorHeap>& GetComPtr() {
-        return heap_;
+    ID3D12DescriptorHeap* GetD3D12Heap() {
+        return heap_.Get();
     }
 };
 
-class ResourceMap {
-private:
-    struct ResourceHandle {
-        Resource* ptr;
-        std::unordered_map<std::string, ResourceView> views;
-
-        ResourceHandle() = default;
-        ResourceHandle(const ResourceHandle&) = delete;
-        ResourceHandle& operator=(const ResourceHandle&) = delete;
-        ResourceHandle& operator=(ResourceHandle&& rh) noexcept {
-            ptr = rh.ptr;
-            views = std::move(rh.views);
-            return *this;
-        }
-        ResourceHandle(ResourceHandle&& rh) noexcept : ptr(rh.ptr), views(std::move(rh.views)) {}
-    };
-
-    DXAllocator* allocator_;
-    std::unordered_map<std::string, ResourceHandle> resources_;
-    std::vector<ResourceHandle> expiring_resources_ {};
+class TextureHeap : public DescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV> {
+    std::vector<bool> resident_;
+    D3D12_DESCRIPTOR_RANGE ranges_[1];
 public:
-    ResourceMap(DXAllocator* allocator) : allocator_(allocator) {}
-
-    template<typename T, typename... Args>
-    requires std::derived_from<T, Resource>
-    bool CreateResource(std::string name, Args&&... args) {
-        if (resources_.contains(name)) {
-            LFATAL("Failed to create resource {}; resource already exists.", name);
-            return false;
-        }
-        T* ptr = new T(name, allocator_, std::forward<Args>(args)...);
-        ResourceHandle handle {};
-        handle.ptr = ptr;
-        resources_[name] = std::move(handle);
-        return true;
+    TextureHeap(ComPtr<ID3D12Device> device, uint32_t capacity) : DescriptorHeap(device, capacity, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE), resident_(capacity) {
+        ranges_[0] = {
+            .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            .NumDescriptors = capacity,
+            .BaseShaderRegister = 0,
+            .RegisterSpace = 1,
+            .OffsetInDescriptorsFromTableStart = 0
+        };
     }
 
-    bool BindResourceView(const std::string& resource_name, std::string view_name, const ResourceView& rv) {
-        if (!resources_.contains(resource_name)) {
-            LFATAL("Failed to bind resource view {}::{}; resource not exists.", resource_name, view_name);
-            return false;
+    uint32_t BindTexture(ResourceHandle res) {
+        for (uint32_t i = 0; i < resident_.size(); ++i) {
+            if (!resident_[i]) {
+                D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUHandle(i);
+                auto desc = res->GetD3D12Resource()->GetDesc();
+                D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
+                    .Format = desc.Format,
+                    .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+                    .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                    .Texture2D = {
+                        .MostDetailedMip = 0,
+                        .MipLevels = desc.MipLevels,
+                        .PlaneSlice = 0,
+                        .ResourceMinLODClamp = 0.0f
+                    }
+                };
+                device_->CreateShaderResourceView(res->GetD3D12Resource(), &srv_desc, handle);
+                res->GetResourceMeta().Tex2D.bind_index = i;
+                return i;
+            }
         }
-        auto& views = resources_[resource_name].views;
-        if (views.contains(view_name)) {
-            LFATAL("Failed to bind resource view {}::{}; resource view already exists.", resource_name, view_name);
-            return false;
-        }
-        views[view_name] = rv;
-        return true;
+        LFATAL("Cannot bind resource {} to texture heap: heap is full", res->GetResourceName());
     }
 
-    template<typename T>
-    requires std::derived_from<T, Resource>
-    std::optional<T*> QueryResource(const std::string& name) {
-        if (!resources_.contains(name)) {
-            LFATAL("Failed to query resource {}; resource not exists.", name);
-            return std::nullopt;
-        }
-        auto* res = resources_[name].ptr;
-        if (res->GetResourceType() != T::Type) {
-            LFATAL("Failed to query resource {}; target resource type {} not equals to queried resource type {}", name, static_cast<int>(T::Type), static_cast<int>(res->GetResourceType()));
-            return std::nullopt;
-        }
-        return reinterpret_cast<T*>(res);
-    }
-
-    std::optional<ResourceView*> QueryResourceView(const std::string& resource_name, const std::string& view_name) {
-        if (!resources_.contains(resource_name)) {
-            LFATAL("Failed to query resource view {}::{}; resource not exists.", resource_name, view_name);
-            return std::nullopt;
-        }
-        auto& views = resources_[resource_name].views;
-        if (!views.contains(view_name)) {
-            LFATAL("Failed to query resource view {}::{}; resource view not exists.", resource_name, view_name);
-            return std::nullopt;
-        }
-        return &views[view_name];
-    }
-
-    bool RemoveResource(const std::string& name) {
-        if (!resources_.contains(name)) {
-            LFATAL("Failed to remove resource {}; resource not exists.", name);
-            return false;
-        }
-        auto& handle = resources_[name];
-        expiring_resources_.push_back(std::move(handle));
-        resources_.erase(name);
-        return true;
-    }
-
-    void CleanUp() {
-        for (auto& exp_res : expiring_resources_) {
-            delete exp_res.ptr;
-        }
-        expiring_resources_.clear();
-    }
-
-    ~ResourceMap() {
-        CleanUp();
-        for (auto& resource : resources_) {
-            resource.second.views.clear();
-            delete resource.second.ptr;
-        }
+    std::pair<D3D12_DESCRIPTOR_RANGE*, uint32_t> GetDescriptorRanges() {
+        return std::make_pair(ranges_, static_cast<uint32_t>(CountOf(ranges_)));
     }
 };
 
 class ResourceManager {
-private:
     ComPtr<ID3D12Device> device_;
     DXAllocator* allocator_;
-    CopyQueue& copy_queue_;
-    RenderQueue& render_queue_;
-    ResourceMap map_;
+    std::vector<ResourceHandle> alive_resources_;
+    std::vector<ResourceHandle> expired_resource_;
+    RecordDispatcher& render_dispatcher_;
+    RecordDispatcher& copy_dispatcher_;
+    TextureHeap tex_heap_;
 public:
-    ResourceManager(ComPtr<ID3D12Device> device, DXAllocator* allocator, CopyQueue& copy_queue, RenderQueue& render_queue) : device_(device), allocator_(allocator), copy_queue_(copy_queue), render_queue_(render_queue), map_(allocator) {
+    ResourceManager(ComPtr<ID3D12Device> device, DXAllocator* allocator, RecordDispatcher& render_dispatcher, RecordDispatcher& copy_dispatcher, size_t tex_heap_size) : device_(device), allocator_(allocator), render_dispatcher_(render_dispatcher), copy_dispatcher_(copy_dispatcher), tex_heap_(device, tex_heap_size) {
 
     }
 
-    UploadBuffer CreateUploadBuffer(uint64_t size) {
-        auto desc = UploadBuffer::GetDesc(size);
-        ComPtr<ID3D12Resource> ub = allocator_->CreateLocalResource(desc);
-        return { ub };
+    ResourceHandle CreateLocalBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+        size_t bytes = element_size * element_count;
+        D3D12_RESOURCE_DESC desc {
+            .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+            .Alignment = 0,
+            .Width = bytes,
+            .Height = 1,
+            .DepthOrArraySize = 1,
+            .MipLevels = 1,
+            .Format = DXGI_FORMAT_UNKNOWN,
+            .SampleDesc = { 1, 0 },
+            .Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+            .Flags = flags,
+        };
+        Resource::ResourceMeta meta = {
+            .Buffer = {
+                .type = Resource::HeapType::UPLOAD,
+                .element_size = element_size,
+                .element_count = element_count
+            }
+        };
+        ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
+        alive_resources_.push_back(res);
+        return res;
     }
 
-    std::optional<RenderTarget*> CreateRenderTarget(const std::string& name, DXGI_FORMAT rt_fmt, uint32_t width, uint32_t height, const float clear_color[4], MSAAType type) {
-        D3D12_RESOURCE_DESC desc {};
-        desc.Alignment = 0;
-        desc.Width = width;
-        desc.Height = height;
-        desc.DepthOrArraySize = 1;
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        desc.Format = rt_fmt;
-        desc.MipLevels = 1;
-        desc.SampleDesc.Count = GetSampleCount(type);
-        desc.SampleDesc.Quality = 0;
-        D3D12_CLEAR_VALUE clr {};
-        clr.Format = rt_fmt;
-        memcpy(clr.Color, clear_color, sizeof(float) * 4);
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc, D3D12_RESOURCE_STATE_COMMON, &clr);
-        if (!map_.CreateResource<RenderTarget>(name, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<RenderTarget>(name);
-        return query;
+    template<typename T>
+    ResourceHandle CreateLocalBuffer(const std::string& name, std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+        ResourceHandle rh = CreateLocalBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr);
+        void* mapping;
+        rh->GetD3D12Resource()->Map(0, nullptr, &mapping);
+        memcpy(mapping, &vector[0], vector.size() * sizeof(T));
+        rh->GetD3D12Resource()->Unmap(0, nullptr);
+        alive_resources_.push_back(rh);
+        return rh;
     }
 
-    std::optional<RenderTarget*> CreateRenderTarget(const std::string& name, ComPtr<ID3D12Resource>& resource) {
-        if (!map_.CreateResource<RenderTarget>(name, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        return map_.QueryResource<RenderTarget>(name);
+    template<typename T>
+    ResourceHandle CreateLocalBuffer(const std::string& name, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+        ResourceHandle rh = CreateLocalBuffer(name, sizeof(T), 1, initial_states, flags, pclr);
+        alive_resources_.push_back(rh);
+        return rh;
     }
 
-    std::optional<DepthBuffer*> CreateDepthBuffer(const std::string& name, uint32_t width, uint32_t height, DXGI_FORMAT format, MSAAType type) {
-        D3D12_RESOURCE_DESC desc {};
-        desc.Alignment = 0;
-        desc.Width = width;
-        desc.Height = height;
-        desc.DepthOrArraySize = 1;
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        desc.Format = format;
-        desc.MipLevels = 1;
-        desc.SampleDesc.Count = GetSampleCount(type);
-        desc.SampleDesc.Quality = 0;
-        D3D12_CLEAR_VALUE optclr {};
-        optclr.Format = format;
-        optclr.DepthStencil.Depth = 1.0f;
-        optclr.DepthStencil.Stencil = 0;
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &optclr);
-        if (!map_.CreateResource<DepthBuffer>(name, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<DepthBuffer>(name);
-        return query;
+    ResourceHandle CreateRemoteBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+        size_t bytes = element_size * element_count;
+        D3D12_RESOURCE_DESC desc {
+            .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+            .Alignment = 0,
+            .Width = bytes,
+            .Height = 1,
+            .DepthOrArraySize = 1,
+            .MipLevels = 1,
+            .Format = DXGI_FORMAT_UNKNOWN,
+            .SampleDesc = { 1, 0 },
+            .Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+            .Flags = flags,
+        };
+        Resource::ResourceMeta meta = {
+            .Buffer = {
+                .type = Resource::HeapType::DEFAULT,
+                .element_size = element_size,
+                .element_count = element_count
+            }
+        };
+        ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
+        alive_resources_.push_back(res);
+        return res;
     }
 
-    template<typename V>
-    std::optional<VertexBuffer*> CreateVertexBuffer(const std::string& name, const V* vertices, size_t vertices_count) {
-        size_t size = vertices_count * sizeof(V);
-        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(size)));
-        upload_buffer.Write(vertices, size);
-        D3D12_RESOURCE_DESC desc {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Width = size;
-        desc.Height = 1;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1;
-        desc.Format = DXGI_FORMAT_UNKNOWN;
-        desc.SampleDesc.Count = 1;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc);
-        if (!map_.CreateResource<VertexBuffer>(name, copy_queue_, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<VertexBuffer>(name);
-        query.value()->CopyToBuffer(upload_buffer);
-        ResourceView view {};
-        view.type = ResourceViewType::VBV;
-        view.data.vb_view.BufferLocation = resource->GetGPUVirtualAddress();
-        view.data.vb_view.SizeInBytes = vertices_count * sizeof(V);
-        view.data.vb_view.StrideInBytes = sizeof(V);
-        map_.BindResourceView(name, "default_vb_view", view);
-        return query;
+    template<typename T>
+    ResourceHandle CreateRemoteBuffer(const std::string& name, std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, vector, initial_states, flags, pclr);
+        ResourceHandle rh = CreateRemoteBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr);
+        Resource::CopyToRemoteBuffer(copy_dispatcher_, upload, rh);
+        alive_resources_.push_back(rh);
+        MarkAsExpired(upload);
+        return rh;
     }
 
-    std::optional<IndexBuffer*> CreateIndexBuffer(const std::string& name, const uint32_t* indices, size_t indices_count) {
-        size_t size = indices_count * sizeof(uint32_t);
-        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(size)));
-        D3D12_RESOURCE_DESC desc {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Width = size;
-        desc.Height = 1;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1;
-        desc.Format = DXGI_FORMAT_UNKNOWN;
-        desc.SampleDesc.Count = 1;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        upload_buffer.Write(indices, size);
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc);
-        if (!map_.CreateResource<IndexBuffer>(name, copy_queue_, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<IndexBuffer>(name);
-        query.value()->CopyToBuffer(upload_buffer);
-        ResourceView view {};
-        view.type = ResourceViewType::IBV;
-        view.data.ib_view.BufferLocation = resource->GetGPUVirtualAddress();
-        view.data.ib_view.SizeInBytes = indices_count * sizeof(uint32_t);
-        view.data.ib_view.Format = DXGI_FORMAT_R32_UINT;
-        map_.BindResourceView(name, "default_ib_view", view);
-        return query;
-    }
+    ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, D3D12_RESOURCE_STATES initial_states, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 },  bool bind_tex = true, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
 
-    template<typename S>
-    std::optional<StructuredBuffer*> CreateStructuredBuffer(const std::string& name, const S* data, size_t count) {
-        size_t size = count * sizeof(S);
-        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(size)));
-        D3D12_RESOURCE_DESC desc {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Width = size;
-        desc.Height = 1;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1;
-        desc.Format = DXGI_FORMAT_UNKNOWN;
-        desc.SampleDesc.Count = 1;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        upload_buffer.Write(data, size);
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(desc);
-        if (!map_.CreateResource<StructuredBuffer>(name, copy_queue_, resource, sizeof(S), Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<StructuredBuffer>(name);
-        query.value()->CopyToBuffer(upload_buffer);
-        return query.value();
-    }
-
-    template<typename S>
-    std::optional<StructuredBuffer*> CreateStructuredBuffer(const std::string& name, std::vector<S>& data) {
-        return CreateStructuredBuffer(name, &data[0], data.size());
-    }
-
-    template<typename C>
-    std::optional<ConstantBuffer*> CreateConstantBuffer(const std::string& name) {
-        D3D12_RESOURCE_DESC desc {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Width = AlignV<256>(sizeof(C));
-        desc.Height = 1;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1;
-        desc.Format = DXGI_FORMAT_UNKNOWN;
-        desc.SampleDesc.Count = 1;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        ComPtr<ID3D12Resource> constant_buffer = allocator_->CreateLocalResource(desc);
-        if (!map_.CreateResource<ConstantBuffer>(name, constant_buffer, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) {
-            LERROR("Cannot create constant buffer {}", name);
-            return std::nullopt;
-        }
-        auto query = map_.QueryResource<ConstantBuffer>(name);
-        return query;
-    }
-
-
-    std::optional<Texture*> CreateTexture(const std::string& name, const TextureLoader::texture_in_memory_t& texture) {
-        D3D12_RESOURCE_DESC tex_desc {};
-        tex_desc.Width = texture.width;
-        tex_desc.Height = texture.height;
-        tex_desc.Format = texture.format;
-        tex_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        tex_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        tex_desc.MipLevels = 1;
-        tex_desc.DepthOrArraySize = 1;
-        tex_desc.SampleDesc.Count = 1;
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
-        uint32_t rows;
-        uint64_t upload_size, total_size;
-        device_->GetCopyableFootprints(&tex_desc, 0, 1, 0, &footprint, &rows, &upload_size, &total_size);
-        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(footprint.Footprint.RowPitch * rows)));
-        void* upload_buffer_mapping;
-        CHECKHR(upload_buffer.GetComPtr()->Map(0, nullptr, &upload_buffer_mapping));
-        auto* dest = static_cast<uint8_t *>(upload_buffer_mapping) + footprint.Offset;
-        uint64_t dest_pitch = footprint.Footprint.RowPitch;
-        for (int i = 0; i < rows; ++i) {
-            memcpy(dest + i * dest_pitch, texture.data + i * texture.row_pitch, texture.row_pitch);
-        }
-        upload_buffer.GetComPtr()->Unmap(0, nullptr);
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(tex_desc);
-        if (!map_.CreateResource<Texture>(name, copy_queue_, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<Texture>(name);
-        query.value()->CopyToTexture(upload_buffer, footprint);
-        return query;
+        D3D12_RESOURCE_DESC desc {
+            .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            .Alignment = 0,
+            .Width = width,
+            .Height = height,
+            .DepthOrArraySize = 1,
+            .MipLevels = mip_levels,
+            .Format = fmt,
+            .SampleDesc = multi_sample_desc,
+            .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+            .Flags = flags,
+        };
+        Resource::ResourceMeta meta = {
+            .Tex2D = {
+                .stride = BitsPerPixel(fmt) / 8,
+                .bind_index = 0
+            }
+        };
+        ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
+        if (bind_tex) tex_heap_.BindTexture(res);
+        alive_resources_.push_back(res);
+        return res;
     }
 
     template<typename ImageFormat>
     requires is_image_format<ImageFormat>
-    std::optional<Texture*> CreateTextureFromImage(const std::string& name, const Image<ImageFormat>& image) {
-        D3D12_RESOURCE_DESC tex_desc {};
-        tex_desc.Width = image.width;
-        tex_desc.Height = image.height;
-        tex_desc.Format = ImageFormat::DXGIFormat;
-        tex_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        tex_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        tex_desc.MipLevels = 1;
-        tex_desc.DepthOrArraySize = 1;
-        tex_desc.SampleDesc.Count = 1;
+    ResourceHandle CreateTexture2DFromImage(const std::string& name, Image<ImageFormat>& img) {
+        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
+        auto tex_desc = texture->GetD3D12Resource()->GetDesc();
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
         uint32_t rows;
-        uint64_t upload_size, total_size;
-        device_->GetCopyableFootprints(&tex_desc, 0, 1, 0, &footprint, &rows, &upload_size, &total_size);
-        UploadBuffer upload_buffer(allocator_->CreateLocalResource(UploadBuffer::GetDesc(footprint.Footprint.RowPitch * rows)));
-        void* upload_buffer_mapping;
-        CHECKHR(upload_buffer.GetComPtr()->Map(0, nullptr, &upload_buffer_mapping));
-        auto* dest = static_cast<uint8_t *>(upload_buffer_mapping) + footprint.Offset;
+        uint64_t row_pitch;
+        uint64_t total_bytes;
+        device_->GetCopyableFootprints(&tex_desc, 0, 1, 0, &footprint, &rows, &row_pitch, &total_bytes);
+        void* mapping;
+        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, 1, footprint.Footprint.RowPitch * rows, D3D12_RESOURCE_STATE_COMMON);
+        upload->GetD3D12Resource()->Map(0, nullptr, &mapping);
+        CHECKHR(upload->GetD3D12Resource()->Map(0, nullptr, &mapping));
+        auto* dest = static_cast<uint8_t *>(mapping) + footprint.Offset;
         uint64_t dest_pitch = footprint.Footprint.RowPitch;
         for (int i = 0; i < rows; ++i) {
-            memcpy(dest + i * dest_pitch, &image.At(0, i), image.width * image.stride);
+            memcpy(dest + i * dest_pitch, &img.At(0, i), img.width * img.stride);
         }
-        upload_buffer.GetComPtr()->Unmap(0, nullptr);
-        ComPtr<ID3D12Resource> resource = allocator_->CreateRemoteResource(tex_desc);
-        if (!map_.CreateResource<Texture>(name, copy_queue_, resource, Waitable(render_queue_.GetRenderFence(), 0), Waitable(copy_queue_.GetCopyFence(), 0))) return std::nullopt;
-        auto query = map_.QueryResource<Texture>(name);
-        query.value()->CopyToTexture(upload_buffer, footprint);
-        return query;
+        upload->GetD3D12Resource()->Unmap(0, nullptr);
+        Resource::CopyToTexture(copy_dispatcher_, upload, texture, footprint);
+        MarkAsExpired(upload);
+        alive_resources_.push_back(texture);
+        return texture;
     }
 
-    ResourceMap& GetMap() {
-        return map_;
+    ResourceHandle CreateAdoptedBackBuffer(const std::string& name, ID3D12Resource* backbuffer, D3D12_RESOURCE_STATES current_states) {
+        Resource::ResourceMeta meta {
+            .Tex2D = {
+                .stride = BitsPerPixel(backbuffer->GetDesc().Format) / 8,
+                .bind_index = 0
+            }
+        };
+        ResourceHandle res = new Resource(name, allocator_, backbuffer, current_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())));
+        alive_resources_.push_back(res);
+        return res;
     }
 
-};
-
-using RTVHeap = DescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_RTV>;
-using DSVHeap = DescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_DSV>;
-
-class BindlessHeap : public DescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV> {
-private:
-    enum class Type {
-        SRV,
-        CBV,
-        UAV,
-    };
-
-    ComPtr<ID3D12Device>& device_;
-    ResourceManager& res_mgr_;
-    uint32_t srv_scope_;
-    uint32_t cbv_scope_;
-    uint32_t uav_scope_;
-    std::unordered_map<std::string, uint32_t> heap_mapping_;
-    std::vector<bool> resident_;
-    D3D12_DESCRIPTOR_RANGE ranges_[3];
-    std::vector<Resource*> referenced_resource_;
-
-    int32_t AssignIndex(Type type);
-public:
-    BindlessHeap(ComPtr<ID3D12Device>& device, ResourceManager& res_mgr, uint32_t srv_scope, uint32_t cbv_scope, uint32_t uav_scope);
-    std::optional<std::string> BindTexture(const std::string& name);
-    std::optional<std::string> BindStructuredBuffer(const std::string& name);
-    std::optional<std::string> BindConstantBuffer(const std::string& name);
-    int32_t QueryResourceIndex(const std::string& name);
-    bool Unbind(const std::string& name);
-
-    void ClearReferencedResources() {
-        referenced_resource_.clear();
+    TextureHeap& GetTextureHeap() {
+        return tex_heap_;
     }
 
-    std::vector<Resource*>& GetReferencedResource() {
-        return referenced_resource_;
+    bool MarkAsExpired(ResourceHandle rh) {
+        auto iter = std::remove_if(alive_resources_.begin(), alive_resources_.end(), [&](const auto& h) {
+                return h == rh;
+        });
+        if (iter == alive_resources_.end()) return false;
+        alive_resources_.erase(iter, alive_resources_.end());
+        expired_resource_.push_back(rh);
+        return true;
     }
 
-    D3D12_DESCRIPTOR_RANGE* GetDescriptorRange() {
-        return ranges_;
-    }
-};
-
-class DXDefaultAllocator : public DXAllocator {
-public:
-    using init_t = struct {};
-    DXDefaultAllocator(ComPtr<ID3D12Device> device) : DXAllocator(device) {
-
-    }
-
-    ComPtr<ID3D12Resource> CreateLocalResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) override {
-        D3D12_HEAP_PROPERTIES prop {};
-        prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-        ComPtr<ID3D12Resource> resource;
-        device_->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &desc, state, pclr, IID_PPV_ARGS(&resource));
-        return resource;
-    }
-
-    ComPtr<ID3D12Resource> CreateRemoteResource(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON, D3D12_CLEAR_VALUE* pclr = nullptr) override {
-        D3D12_HEAP_PROPERTIES prop {};
-        prop.Type = D3D12_HEAP_TYPE_DEFAULT;
-        ComPtr<ID3D12Resource> resource;
-        device_->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &desc, state, pclr, IID_PPV_ARGS(&resource));
-        return resource;
-    }
-
-    void FreeResource(ComPtr<ID3D12Resource> resource) override {
-        UINT size = 0;
-        resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
-        std::wstring name;
-        if (size == 0) {
-            name = L"Unnamed Object";
-        } else {
-            name.resize(size / sizeof(wchar_t));
-            resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
+    void Cleanup() {
+        for (auto it = expired_resource_.begin(); it != expired_resource_.end();) {
+            if ((*it)->GetCopyWaitable().Completed() && (*it)->GetRenderWaitable().Completed()) {
+                delete *it;
+                it = expired_resource_.erase(it);
+            } else {
+                ++it;
+            }
         }
-        LDEBUG("Resource {} is released", ConvertWstringToString(name));
     }
 };
+
+template<typename S>
+class StructuredView {
+    ResourceHandle rh_;
+    S* ptr_;
+    size_t capacity_;
+    uint64_t ridx_ {};
+    uint64_t widx_ {};
+public:
+    StructuredView() = default;
+    StructuredView(ResourceHandle rh) : rh_(rh) {
+        rh->GetD3D12Resource()->Map(0, nullptr, reinterpret_cast<void**>(&ptr_));
+        capacity_ = rh->GetResourceMeta().Buffer.element_count * rh->GetResourceMeta().Buffer.element_size;
+    }
+    StructuredView(const StructuredView&) = delete;
+    StructuredView(StructuredView&& sv) noexcept : rh_(sv.rh_), ptr_(sv.ptr_), capacity_(sv.capacity_), ridx_(sv.ridx_), widx_(sv.widx_) {
+        sv.rh_ = nullptr;
+        sv.ptr_ = nullptr;
+        sv.capacity_ = 0;
+        sv.ridx_ = 0;
+        sv.widx_ = 0;
+    }
+
+    void Open(ResourceHandle rh) {
+        rh_ = rh;
+        rh->GetD3D12Resource()->Map(0, nullptr, reinterpret_cast<void**>(&ptr_));
+        capacity_ = rh->GetResourceMeta().Buffer.element_count * rh->GetResourceMeta().Buffer.element_size;
+    }
+
+    void Clear(const S& clrv) {
+        rh_->GetRenderWaitable().CPULockModify();
+        for (size_t i = 0; i < capacity_; ++i) {
+            *ptr_[i] = clrv;
+        }
+        widx_ = 0;
+        ridx_ = 0;
+        rh_->GetRenderWaitable().CPUUnlockModify();
+    }
+
+    void Clear() {
+        rh_->GetRenderWaitable().CPULockModify();
+        memset(ptr_, 0, capacity_);
+        widx_ = 0;
+        ridx_ = 0;
+        rh_->GetRenderWaitable().CPUUnlockModify();
+    }
+
+    void Modify(const std::function<void(S*)>& callback) {
+        rh_->GetRenderWaitable().CPULockModify();
+        callback(ptr_);
+        rh_->GetRenderWaitable().CPUUnlockModify();
+    }
+
+    const S& operator[](size_t i) const {
+        return ptr_[i];
+    }
+
+    bool Append(const S& s) {
+        rh_->GetRenderWaitable().CPULockModify();
+        if (widx_ == capacity_) {
+            rh_->GetRenderWaitable().CPUUnlockModify();
+            return false;
+        }
+        ptr_[widx_] = s;
+        ++widx_;
+        rh_->GetRenderWaitable().CPUUnlockModify();
+        return true;
+    }
+
+    std::optional<S*> Fetch() {
+        if (ridx_ == capacity_) {
+            return std::nullopt;
+        }
+        S* r = &ptr_[ridx_];
+        ++ridx_;
+        return r;
+    }
+
+    uint64_t GetReadPos() const {
+        return ridx_;
+    }
+
+    uint64_t GetWritePos() const {
+        return widx_;
+    }
+
+    size_t GetCapacity() const {
+        return capacity_;
+    }
+
+    ~StructuredView() {
+        rh_->GetD3D12Resource()->Unmap(0, nullptr);
+    }
+};
+}

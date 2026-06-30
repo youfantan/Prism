@@ -1,0 +1,9 @@
+{
+  "Fonts": [
+    {
+      "name": "UbuntuMono",
+      "path": "UbuntuMono.ttf",
+      "character_map": "chmap.txt"
+    }
+  ]
+}

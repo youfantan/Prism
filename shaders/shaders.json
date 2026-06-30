@@ -1,0 +1,32 @@
+{
+  "Shaders": [
+    {
+      "name": "object",
+      "type": "vs",
+      "path": "object.vs.hlsl",
+      "profile": "vs_6_6",
+      "entry": "main"
+    },
+    {
+      "name": "object",
+      "type": "ps",
+      "path": "object.ps.hlsl",
+      "profile": "ps_6_6",
+      "entry": "main"
+    },
+    {
+      "name": "text",
+      "type": "vs",
+      "path": "text.vs.hlsl",
+      "profile": "vs_6_6",
+      "entry": "main"
+    },
+    {
+      "name": "text",
+      "type": "ps",
+      "path": "text.ps.hlsl",
+      "profile": "ps_6_6",
+      "entry": "main"
+    }
+  ]
+}

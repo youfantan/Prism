@@ -16,21 +16,19 @@ struct Pixel
 cbuffer Presets : register(b0) {
     row_major float4x4 world;
     uint tex_index;
-    uint scene_index;
 }
 
-struct Scene {
+cbuffer Scene : register(b1) {
     row_major float4x4 vp;
     float4 camera_pos;
     uint dotlight_count;
     float3 dotlight_pos[16];
     float3 dotlight_color[16];
-};
+}
 
 Pixel main(Vertex v) {
-    ConstantBuffer<Scene> scene = ResourceDescriptorHeap[NonUniformResourceIndex(scene_index)];
     Pixel p;
-    row_major float4x4 wvp = mul(world, scene.vp);
+    row_major float4x4 wvp = mul(world, vp);
     p.position = mul(float4(v.position, 1.0), wvp);
     p.w_position = mul(float4(v.position, 1.0), world);
     p.normal = mul(v.normal, transpose((float3x3)world));

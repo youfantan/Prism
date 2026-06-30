@@ -8,7 +8,9 @@
 #include <mlog.h>
 #include <utils.h>
 
-class ImageLoader;
+namespace Prism
+{
+    class ImageLoader;
 
 template<typename T>
 concept is_image_format = requires {
@@ -84,8 +86,11 @@ struct Image {
             stride = 0;
         }
     }
+
 private:
-    Image() : ptr(nullptr), width(0), height(0), stride(0) {}
+    Image(uint8_t* ptr, size_t width, size_t height) : ptr(ptr), width(width), height(height), stride(ImageFormat::Stride) {
+
+    }
 };
 
 class ImageLoader {
@@ -94,12 +99,9 @@ public:
     requires is_image_format<ImageFormat>
     static Image<ImageFormat> CreateBlankImage(size_t width, size_t height) {
         using data_type_t = ImageFormat::data_type_t;
-        Image<ImageFormat> img {};
-        img.ptr = new data_type_t[width * height];
-        memset(img.ptr, 0, width * height * ImageFormat::Stride);
-        img.width = width;
-        img.height = height;
-        img.stride = ImageFormat::Stride;
+        auto ptr = new data_type_t[width * height];
+        memset(ptr, 0, width * height * ImageFormat::Stride);
+        Image<ImageFormat> img(ptr, width, height);
         return img;
     }
 
@@ -107,14 +109,11 @@ public:
     requires is_image_format<ImageFormat>
     static Image<ImageFormat> CreateImageFromPixels(size_t width, size_t height, size_t src_pitch, void* ptr) {
         using data_type_t = ImageFormat::data_type_t;
-        Image<ImageFormat> img;
-        img.ptr = new data_type_t[width * height];
+        auto data = new data_type_t[width * height];
         for (size_t i = 0; i < height; ++i) {
-            memcpy(&img.ptr[i * width], &static_cast<char*>(ptr)[i * src_pitch], width);
+            memcpy(&data[i * width], &static_cast<char*>(ptr)[i * src_pitch], width);
         }
-        img.width = width;
-        img.height = height;
-        img.stride = ImageFormat::Stride;
+        Image<ImageFormat> img(data, width, height);
         return img;
     }
 
@@ -126,11 +125,11 @@ public:
 
     template<typename ImageFormat>
     requires is_image_format<ImageFormat>
-    static std::optional<Image<ImageFormat>> LoadJPG(const std::string& name) {
+    static std::optional<Image<ImageFormat>> LoadJPG(const std::string& path) {
         using data_type_t = ImageFormat::data_type_t;
-        FILE* jpg_file = fopen(name.c_str(), "rb");
+        FILE* jpg_file = fopen(path.c_str(), "rb");
         if (jpg_file == nullptr) {
-            LFATAL("Cannot open image file {} while load image", name);
+            LFATAL("Cannot open image file {} while load image", path);
             return std::nullopt;
         }
         fseek(jpg_file, 0, SEEK_END);
@@ -141,24 +140,21 @@ public:
         fclose(jpg_file);
         tjhandle handle = tjInitDecompress();
         if (handle == nullptr) {
-            LFATAL("Cannot initialize TurboJPEG compress library when load image {}", name);
+            LFATAL("Cannot initialize TurboJPEG compress library when load image {}", path);
             delete[] jpeg_buf;
             return std::nullopt;
         }
         int width, height, subsamp, colorspace;
         if (tjDecompressHeader3(handle, jpeg_buf, fsize, &width, &height, &subsamp, &colorspace) != 0) {
-            LFATAL("Cannot decompress header in image file {} using TurboJPEG", name);
+            LFATAL("Cannot decompress header in image file {} using TurboJPEG", path);
             tjDestroy(handle);
             delete[] jpeg_buf;
             return std::nullopt;
         }
-        Image<ImageFormat> img {};
-        img.width = width;
-        img.height = height;
-        img.stride = ImageFormat::Stride;
-        img.ptr = new data_type_t[img.width * img.height * img.stride];
+        auto ptr = new data_type_t[width * height * ImageFormat::Stride];
+        Image<ImageFormat> img(reinterpret_cast<uint8_t*>(ptr),width, height);
         if (tjDecompress2(handle, jpeg_buf, fsize, img.ptr, width, 0, height, ImageFormat::TJFormat, TJFLAG_FASTDCT) != 0) {
-            LFATAL("Cannot decompress image file {} using TurboJPEG", name);
+            LFATAL("Cannot decompress image file {} using TurboJPEG", path);
             tjDestroy(handle);
             delete[] jpeg_buf;
             delete[] img.ptr;
@@ -171,22 +167,22 @@ public:
 
     template<typename ImageFormat>
     requires is_image_format<ImageFormat>
-    static bool StoreJPG(const std::string& name, const Image<ImageFormat>& img, int quality = 100) {
+    static bool StoreJPG(const std::string& path, const Image<ImageFormat>& img, int quality = 100) {
         tjhandle handle = tjInitCompress();
         if (handle == nullptr) {
-            LFATAL("Cannot initialize TurboJPEG compress library when store image {}", name);
+            LFATAL("Cannot initialize TurboJPEG compress library when store image {}", path);
             return false;
         }
         unsigned char *jpeg_buf = nullptr;
         unsigned long jpeg_size = 0;
         if (tjCompress2(handle, img.ptr, img.width, 0, img.height, ImageFormat::TJFormat, &jpeg_buf, &jpeg_size, ImageFormat::TJSampling, quality, TJFLAG_FASTDCT) != 0) {
-            LFATAL("Cannot compress image file {} using TurboJPEG", name);
+            LFATAL("Cannot compress image file {} using TurboJPEG", path);
             tjDestroy(handle);
             return false;
         }
-        FILE *outfile = fopen(name.c_str(), "wb");
+        FILE *outfile = fopen(path.c_str(), "wb");
         if (outfile == nullptr) {
-            LFATAL("Cannot open image file {} while store image", name);
+            LFATAL("Cannot open image file {} while store image", path);
             tjFree(jpeg_buf);
             tjDestroy(handle);
             return false;
@@ -200,3 +196,4 @@ public:
 
 
 };
+}

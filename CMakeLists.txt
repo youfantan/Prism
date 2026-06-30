@@ -17,7 +17,7 @@ foreach(dir ${COPY_DIRS})
     add_custom_command(POST_BUILD TARGET copy_dirs
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/${dir}
-            $<TARGET_FILE_DIR:PrismRenderer>/${dir}
+            $<TARGET_FILE_DIR:pipline-demo>/${dir}
     )
 endforeach ()
 
@@ -38,38 +38,37 @@ add_custom_target(copy_binaries ALL)
 foreach(file ${THIRDPARTY_COPY_FILES})
     add_custom_command(POST_BUILD TARGET copy_binaries
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${file}"
-            "$<TARGET_FILE_DIR:PrismRenderer>/"
+            ${file}
+            $<TARGET_FILE_DIR:pipline-demo>
     )
 endforeach()
 
 # add link directories
 link_directories(${THIRDPARTY_LINK_DIR})
 
-add_executable(PrismRenderer
-        src/main.cpp
-        include/io/texture.h
+add_executable(pipline-demo
         include/render/framework.h
-        src/render/framework.cpp
         include/base.h
         include/render/queue.h
-        src/render/queue.cpp
         include/render/resource.h
         include/render/drawcall.h
         include/render/sync.h
         include/utils.h
-        src/io/texture.cpp
         include/mlog.h
         include/io/shader.h
         include/transform/camera.h
         src/transform/camera.cpp
-        src/render/sync.cpp
-        src/render/resource.cpp
         include/transform/helper.h
-        include/render/ui.h
+        include/piplines/ui_pipeline.h
         include/io/font.h
         include/io/image.h
         src/utils.cpp
+        include/render/mesh.h
+        include/piplines/realistic_style_pipeline.h
+        src/render/framework.cpp
+        demo/pipeline_demo.cpp
+        include/render/render_context.h
+        include/render/render_target.h
 )
-target_link_libraries(PrismRenderer d3d12 dxgi d3dcompiler dxcompiler dxguid bcrypt turbojpeg freetype)
-add_dependencies(PrismRenderer copy_dirs copy_binaries)
+target_link_libraries(pipline-demo d3d12 dxgi d3dcompiler dxcompiler dxguid DirectXTex bcrypt turbojpeg freetype)
+add_dependencies(pipline-demo copy_dirs copy_binaries)

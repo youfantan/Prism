@@ -1,11 +1,17 @@
 #pragma once
 
+#include <cuchar>
+#include <DirectXMath.h>
 #include <fstream>
 #include <string>
+#include <functional>
 #include <windows.h>
 #include <mlog.h>
+#include <thread>
 
-template<size_t ALIGNMENT, typename T>
+namespace Prism
+{
+    template<size_t ALIGNMENT, typename T>
 T AlignV(T value) {
     return (value % ALIGNMENT == 0) ? value : (value / ALIGNMENT + 1) * ALIGNMENT;
 }
@@ -92,8 +98,54 @@ public:
     }
 };
 
-std::wstring ConvertStringToWstring(const std::string& src);
-std::string ConvertWstringToString(const std::wstring& src);
+inline std::wstring ConvertStringToWstring(const std::string& src) {
+    if (src.empty()) return {};
+    int len = MultiByteToWideChar(CP_ACP, 0, src.data(), -1, nullptr, 0);
+    if (len == 0) {
+        LFATAL("Cannot convert string to wstring, Win32 API MultiByteToWideChar() returns length == 0");
+        return {};
+    }
+    wchar_t* dst = (wchar_t*)malloc(len * sizeof(wchar_t));
+    MultiByteToWideChar(CP_ACP, 0, src.data(), -1, dst, len);
+    return dst;
+}
+inline std::string ConvertWstringToString(const std::wstring& src) {
+    if (src.empty()) {};
+    int len = WideCharToMultiByte(CP_ACP, 0, src.data(), -1, nullptr, 0, nullptr, nullptr);
+    if (len == 0) {
+        LFATAL("Cannot convert wstring to string, Win32 API WideCharToMultiByte() returns length == 0");
+        return {};
+    }
+    char* dst = (char*)malloc(len);
+    WideCharToMultiByte( CP_ACP, 0, src.data(), -1, dst, len, nullptr, nullptr);
+    return dst;
+}
+
+inline std::u32string ConvertStringToU32String(const std::string& src) {
+    std::u32string result;
+    std::mbstate_t state{};
+    char32_t c32;
+    const char* ptr = src.data();
+    const char* end = ptr + src.size();
+    while (size_t rc = std::mbrtoc32(&c32, ptr, end - ptr, &state)) {
+        if (rc == static_cast<size_t>(-1) || rc == static_cast<size_t>(-3)) break;
+        if (rc == static_cast<size_t>(-2)) break;
+        result.push_back(c32);
+        ptr += rc;
+    }
+    return result;
+}
+inline std::string ConvertU32StringToString(const std::u32string& src) {
+    std::string result;
+    std::mbstate_t state{};
+    char buf[8];
+    for (char32_t cp : src) {
+        size_t rc = std::c32rtomb(buf, cp, &state);
+        if (rc == static_cast<size_t>(-1)) break;
+        result.append(buf, rc);
+    }
+    return result;
+}
 
 /* Performance Counter, used to track FPS, CPU usage, GPU usage etc. */
 class PerformanceCounter {
@@ -121,98 +173,33 @@ public:
     }
 };
 
-template<typename T, size_t E>
-class DynamicArray {
+class MetronomeTimer {
 private:
-    char* ptr_;
-    size_t len_;
-    size_t capacity_;
-
-    static size_t GetMinAligned(size_t n) {
-        return n % E == 0 ? n : (n / E + 1) * E;
-    }
+    uint32_t interval_;
+    std::function<void(MetronomeTimer& mt)> callback_;
+    bool flag_;
 public:
-    DynamicArray() {
-        ptr_ = static_cast<char*>(malloc(sizeof(T) * E));
-        len_ = 0;
-        capacity_ = E;
+    MetronomeTimer(uint32_t interval, const std::function<void(MetronomeTimer&)>& callback) : interval_(interval), callback_(callback), flag_(false) {
+
     }
 
-    DynamicArray(const DynamicArray& da) {
-        ptr_ = static_cast<char*>(malloc(sizeof(T) * da.capacity_));
-        len_ = da.len_;
-        capacity_ = da.capacity_;
-        memcpy(ptr_, da.ptr_, len_);
-    }
-
-    DynamicArray(DynamicArray&& da) noexcept : ptr_(da.ptr_), len_(da.len_), capacity_(da.capacity_) {
-        da.ptr_ = nullptr;
-        da.len_ = 0;
-        da.capacity_ = 0;
-    }
-
-    DynamicArray& operator=(const DynamicArray& da) {
-        if (&da == this) return *this;
-        ptr_ = static_cast<char*>(malloc(sizeof(T) * da.capacity_));
-        len_ = da.len_;
-        capacity_ = da.capacity_;
-        memcpy(ptr_, da.ptr_, len_);
-        return *this;
-    }
-
-    DynamicArray& operator=(DynamicArray&& da) noexcept{
-        ptr_ = da.ptr_;
-        len_ = da.len_;
-        capacity_ = da.capacity_;
-        da.ptr_ = nullptr;
-        da.len_ = 0;
-        da.capacity_ = 0;
-        return *this;
-    }
-
-    bool PushAt(size_t i, const T& t) {
-        if (i > capacity_) {
-            if (!Expand(GetMinAligned(i) * sizeof(T))) return false;
-        }
-        memcpy(&ptr_[i * sizeof(T)], &t, sizeof(T));
-        return true;
-    }
-
-    bool PushBack(const T& t) {
-        bool result = PushAt(len_, t);
-        ++len_;
-        return result;
-    }
-
-    std::optional<T*> Get(size_t i) {
-        if (i >= len_) {
-            return std::nullopt;
-        }
-        return reinterpret_cast<T*>(&ptr_[i * sizeof(T)]);
-    }
-
-    bool Expand(size_t to) {
-        void* ptr = realloc(ptr_, to);
-        if (ptr == nullptr) {
-            return false;
-        }
-        ptr_ = static_cast<char*>(ptr);
-        capacity_ = to / sizeof(T);
-        return true;
-    }
-
-    uint64_t GetLength() {
-        return len_;
-    }
-
-    ~DynamicArray() {
-        if (ptr_ != nullptr) {
-            free(ptr_);
-            ptr_ = nullptr;
-            len_ = 0;
-            capacity_ = 0;
+    void Start() {
+        flag_ = true;
+        while (flag_) {
+            auto next = std::chrono::system_clock::now() + std::chrono::milliseconds(interval_);
+            callback_(*this);
+            std::this_thread::sleep_until(next);
         }
     }
+
+    void Stop() {
+        flag_ = false;
+    }
+
+    void ChangeInterval(uint32_t new_interval) {
+        interval_ = new_interval;
+    }
+
 };
 
 template<typename T, size_t N>
@@ -226,7 +213,7 @@ inline bool FileExists(const std::string& file_name) {
 
 }
 
-inline size_t GetFileLength(std::string_view file_name) {
+inline size_t GetFileLength(const std::string& file_name) {
     std::ifstream input(file_name.data(), std::ios::in | std::ios::binary);
     int64_t now = input.tellg();
     input.seekg(0, std::ios::end);
@@ -235,7 +222,7 @@ inline size_t GetFileLength(std::string_view file_name) {
     return len;
 }
 
-inline std::optional<std::string> ReadFileIntoString(std::string_view file_name) {
+inline std::optional<std::string> ReadFileIntoString(const std::string& file_name) {
     std::ifstream input(file_name.data(), std::ios::in | std::ios::binary);
     if (!input) {
         return std::nullopt;
@@ -252,5 +239,14 @@ inline void WriteStringToFile(const std::string& file_name, const std::string& s
     output.write(str.c_str(), str.size());
 }
 
+inline uint32_t RGBA32(const DirectX::XMFLOAT4& xf4) {
+    uint8_t r = xf4.x * 255;
+    uint8_t g = xf4.y * 255;
+    uint8_t b = xf4.z * 255;
+    uint8_t a = xf4.w * 255;
+    return r | (g << 8) | (b << 16) | (a << 24);
+}
+
 template<typename T, typename U>
 concept decay_as = std::same_as<std::decay_t<T>, U>;
+}

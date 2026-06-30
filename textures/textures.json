@@ -1,0 +1,16 @@
+{
+  "Textures": [
+    {
+      "name": "metal",
+      "path": "metal.jpg",
+      "type": "jpeg",
+      "format": "rgb"
+    },
+    {
+      "name": "stone",
+      "path": "stone.jpg",
+      "type": "jpeg",
+      "format": "rgb"
+    }
+  ]
+}
