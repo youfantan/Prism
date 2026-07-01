@@ -181,7 +181,7 @@ public:
             exit(EXIT_FAILURE);
         }
         json fonts_json = json::parse(ffonts);
-        auto fonts = fonts_json["Fonts"];
+        auto& fonts = fonts_json["Fonts"];
         for (auto& font : fonts) {
             std::string name = font["name"];
             std::string path = prefix_ + "/" + static_cast<std::string>(font["path"]);

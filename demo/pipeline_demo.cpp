@@ -2,6 +2,7 @@
 #include <render/framework.h>
 
 #include "piplines/realistic_style_pipeline.h"
+#include "piplines/realistic_style_pipeline.h"
 #include "piplines/ui_pipeline.h"
 #include "transform/helper.h"
 
@@ -85,20 +86,36 @@ public:
         GenNormal(v_Pyramid, i_Pyramid);
         GenNormal(v_Ground, i_Ground);
 
-        ObjectDrawcall::ObjectProperties prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 1, metal_tex);
-        scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, prop);
+
+        auto [v_Sphere, i_Sphere] = GeometryGenerator::GenUVSphere(30);
+        std::vector<LightSrcDrawcall::Index> i_LightSrc = std::move(i_Sphere);
+        std::vector<LightSrcDrawcall::Vertex> v_LightSrc(v_Sphere.size());
+        for (size_t i = 0; i < v_Sphere.size(); ++i) {
+            v_LightSrc[i].Position = { v_Sphere[i].x, v_Sphere[i].y, v_Sphere[i].z };
+        }
+
+        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, metal_tex);
+        scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
+        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, stone_tex);
+        scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
+        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(3, 1, 0, 0.5, { 0.5f, 0.5f, 1.0f, 1.0f });
+        scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);
     }
 
     void Loop(MetronomeTimer& mt) override {
         while (window_.FetchMessage()) {}
         scene_.Update();
-        float delta = perf_.DeltaMs();
+        auto* light_src_drawcall = scene_.GetDrawcall<LightSrcDrawcall>("LightSrc");
         auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
+        auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
         pyramid_drawcall->ApplyProperties();
+        ground_drawcall->ApplyProperties();
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 30, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 50, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. To learn more, visit https://github.com/youfantan/Prism", 30, 70, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
-        ctx_.Render({pyramid_drawcall->CreateRenderProcess(), ui_.CreateRenderProcess()});
+        ctx_.Render({ light_src_drawcall->CreateRenderProcess(), pyramid_drawcall->CreateRenderProcess(), ground_drawcall->CreateRenderProcess(), ui_.CreateRenderProcess() }, [&]() {
+            float delta = perf_.DeltaMs();
+        });
     }
     void OnKeyUp(WPARAM wparam) override {
 
@@ -136,9 +153,9 @@ int main() {
         .buffer_count = 2,
         .render_threads_count = 1,
         .copy_threads_count = 1,
-        .lists_per_render_thread = 1,
+        .lists_per_render_thread = 2,
         .lists_per_copy_thread = 5,
-        .fps_limit = 1000,
+        .fps_limit = 1001,
         .max_texture_count = 128,
         .msaa_type = MSAAType::MSAA_4X,
         .rt_format = DXGI_FORMAT_R8G8B8A8_UNORM,

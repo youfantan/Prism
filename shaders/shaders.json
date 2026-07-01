@@ -27,6 +27,20 @@
       "path": "text.ps.hlsl",
       "profile": "ps_6_6",
       "entry": "main"
+    },
+    {
+      "name": "light",
+      "type": "vs",
+      "path": "light.vs.hlsl",
+      "profile": "vs_6_6",
+      "entry": "main"
+    },
+    {
+      "name": "light",
+      "type": "ps",
+      "path": "light.ps.hlsl",
+      "profile": "ps_6_6",
+      "entry": "main"
     }
   ]
 }

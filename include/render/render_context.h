@@ -33,8 +33,8 @@ namespace Prism
             sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
             sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
             sd.SampleDesc.Count = 1;
-            sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-            sd.Scaling = DXGI_SCALING_NONE;
+            sd.Flags = init.enable_vsync ? 0 : DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+            sd.Scaling = DXGI_SCALING_STRETCH;
             ComPtr<IDXGISwapChain1> sc;
             CHECKHR(device.GetFactory()->CreateSwapChainForHwnd(render_dispatcher_.GetCommandQueue().Get(), hwnd, &sd, nullptr, nullptr, &sc));
             CHECKHR(sc.As(&swapchain_));
@@ -71,7 +71,7 @@ namespace Prism
             }
         }
 
-        void Render(std::initializer_list<RecordDispatcher::GPUProcess> processes) {
+        void Render(std::initializer_list<RecordDispatcher::GPUProcess> processes, std::function<void()>&& after_present) {
             std::vector<RecordDispatcher::GPUProcess> all;
             all.reserve(processes.size() + 3);
             RenderTarget& rt = rts_[index_];
@@ -82,12 +82,13 @@ namespace Prism
             all.push_back(rt.FinishRender());
             all.push_back({[&](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                 return nullptr;
-            }, [&](void*) {
+            }, [&, present_sync = std::move(after_present)](void*) {
                 if (init_.enable_vsync) {
                     CHECKHR(swapchain_->Present(1, 0));
                 } else {
                     CHECKHR(swapchain_->Present(0, DXGI_PRESENT_ALLOW_TEARING));
                 }
+                present_sync();
                 mgr_.Cleanup();
             }});
             render_dispatcher_.PostRecordTask(std::move(all));

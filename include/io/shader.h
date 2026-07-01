@@ -68,7 +68,7 @@ public:
         std::ifstream findex(index_file, std::ios::in | std::ios::binary);
         json index = json::parse(findex);
         std::vector<ShaderSrc> shader_srcs;
-        auto shaders = index["Shaders"];
+        auto& shaders = index["Shaders"];
         for (auto& shader : shaders) {
             auto& src = shader_srcs.emplace_back(shader["name"], ParseType(static_cast<std::string>(shader["type"])), shader["path"], shader["profile"], shader["entry"]);
             std::string file_src = ReadFileIntoString(prefix_ + "/" + src.path).value();
@@ -124,7 +124,7 @@ public:
             exit(EXIT_FAILURE);
         }
         std::string out_binary(static_cast<const char*>(output->GetBufferPointer()), output->GetBufferSize());
-        WriteStringToFile(out_binary, output_path);
+        WriteStringToFile(output_path, out_binary);
         return { static_cast<const char*>(output->GetBufferPointer()), output->GetBufferSize() };
     }
 

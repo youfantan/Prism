@@ -11,7 +11,7 @@ namespace Prism
         XMFLOAT3 camera_pos_;
         XMFLOAT3 up_direction_ { 0.0f, 1.0f, 0.0f };
         XMMATRIX projection_;
-        float speed_ { 2.0f };
+        float speed_ { 10.0f };
         float sensitivity_ { 0.002f };
         HWND hwnd_;
         bool is_focus_;

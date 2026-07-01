@@ -181,11 +181,11 @@ private:
     std::chrono::time_point<std::chrono::system_clock> last_;
 public:
     MetronomeTimer(uint32_t interval, const std::function<void(MetronomeTimer&)>& callback) : interval_(interval), callback_(callback), flag_(false) {
-        last_ = std::chrono::system_clock::now();
     }
 
     void Start() {
         flag_ = true;
+        last_ = std::chrono::system_clock::now();
         while (flag_) {
             auto next = last_ + std::chrono::milliseconds(interval_);
             callback_(*this);
