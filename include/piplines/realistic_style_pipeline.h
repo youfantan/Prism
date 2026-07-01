@@ -143,6 +143,7 @@ namespace Prism
                 pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
                 pso_desc_.SampleMask = UINT_MAX;
                 app_->GetDevice().GetComPtr()->CreateGraphicsPipelineState(&pso_desc_, IID_PPV_ARGS(&pso_));
+                pso_->SetName(L"Object Pipeline");
             }
         };
 
@@ -189,12 +190,11 @@ namespace Prism
         Mesh<Vertex, Index> mesh_;
         ResourceHandle object_info_;
         ObjectProperties properties_;
-
+        uint64_t sync_value_;
 
     public:
         ObjectDrawcall(PrismApp* app, ObjectPipeline& pipeline, ResourceHandle scene_info, const std::string& object_name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const ObjectProperties& prop) : app_(app), pipeline_(pipeline), scene_info_(scene_info), mesh_(object_name, vertices, indices, app->GetResourceManager()), properties_(prop) {
             object_info_ = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
-            ApplyProperties();
         }
         ObjectDrawcall(const ObjectDrawcall&) = delete;
         ObjectDrawcall(ObjectDrawcall&&) = delete;
@@ -205,34 +205,32 @@ namespace Prism
 
         void ApplyProperties() {
             StructuredView<ObjectInfo> object_info(object_info_);
-            object_info.Modify([&](ObjectInfo* info) {
-                info[0].tex_index = properties_.texture->GetResourceMeta().Tex2D.bind_index;
-                MakeWorldMatrix(properties_, info[0].world);
-            });
+            object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            object_info[0].tex_index = properties_.texture->GetResourceMeta().Tex2D.bind_index;
+            MakeWorldMatrix(properties_, object_info[0].world);
         }
 
         RecordDispatcher::GPUProcess CreateRenderProcess() override {
-            object_info_->GetRenderWaitable().CPULockModify();
-            return {[&](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+            return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                sync_value_ = nfv;
                 mesh_.RenderSync(nfv);
-                properties_.texture->RenderGPUSync(nfv);
-                object_info_->RenderGPUSync(nfv);
-                scene_info_->RenderGPUSync(nfv);
+                properties_.texture->GetCopyWaitable().GPUWait();
+                properties_.texture->GetRenderWaitable().GetFenceValue() = nfv;
+                object_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                scene_info_->GetRenderWaitable().GetFenceValue() = nfv;
                 list->SetPipelineState(pipeline_.GetPSO().Get());
                 list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 ID3D12DescriptorHeap* heaps[] = { app_->GetResourceManager().GetTextureHeap().GetD3D12Heap() };
                 list->SetDescriptorHeaps(1, heaps);
                 list->SetGraphicsRootSignature(pipeline_.GetSignature().Get());
                 list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());
-                list->SetGraphicsRootConstantBufferView(1, scene_info_->GetD3D12Resource()->GetGPUVirtualAddress());
-                list->SetGraphicsRootConstantBufferView(2, object_info_->GetD3D12Resource()->GetGPUVirtualAddress());
+                list->SetGraphicsRootConstantBufferView(1, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                list->SetGraphicsRootConstantBufferView(2, object_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
                 list->IASetVertexBuffers(0, 1, &mesh_.GetVertexBufferView());
                 list->IASetIndexBuffer(&mesh_.GetIndexBufferView());
                 list->DrawIndexedInstanced(mesh_.GetIndexBuffer()->GetResourceMeta().Buffer.element_count, 1, 0, 0, 0);
-            }, [&] {
-                    object_info_->GetRenderWaitable().CPUUnlockModify();
-                }
-            };
+                return nullptr;
+            }, [&](void* ptr) {}};
         }
 
         ~ObjectDrawcall() override {
@@ -244,11 +242,11 @@ namespace Prism
         PrismApp* app_;
         ObjectDrawcall::ObjectPipeline pipeline_;
         ResourceHandle scene_info_;
-        std::unordered_map<std::string, Drawcall*> objects_;
+        std::unordered_map<std::string, Drawcall*> drawcalls;
         FreeCamera camera_;
         KMInput input_;
     public:
-        RealisticScene(PrismApp* app) : app_(app), pipeline_(app), camera_(app->GetWindow().GetHandle(), app->GetInitializeParams().width, app->GetInitializeParams().width, 45),
+        RealisticScene(PrismApp* app) : app_(app), pipeline_(app), camera_(app->GetWindow().GetHandle(), app->GetInitializeParams().width, app->GetInitializeParams().height, 45),
         input_(app_->GetWindow().GetHandle(), {
                 .forward_vk = 'W',
                 .backward_vk = 'S',
@@ -264,29 +262,29 @@ namespace Prism
         RealisticScene(RealisticScene&&) = delete;
 
         void Update() {
+            input_.UpdateFreeCamera(camera_);
             StructuredView<RealisticSceneInfo> viewer(scene_info_);
-            viewer.Modify([&](RealisticSceneInfo* info) {
-                camera_.MakeViewAndProjection(info[0].vp);
-                info[0].dotlight_count = 1;
-                info[0].camera_position = camera_.GetCameraPos4();
-                info[0].dotlight_colors[0] = { 0.7f, 0.7f, 0.7f, 0.0f };
-                info[0].dotlight_positions[0] = { 0.0f, 4.0f, 0.0f, 0.0f };
-            });
+            viewer.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            camera_.MakeViewAndProjection(viewer[0].vp);
+            viewer[0].dotlight_count = 1;
+            viewer[0].camera_position = camera_.GetCameraPos4();
+            viewer[0].dotlight_colors[0] = { 0.7f, 0.7f, 0.7f, 0.0f };
+            viewer[0].dotlight_positions[0] = { 0.0f, 4.0f, 0.0f, 0.0f };
         }
 
         ObjectDrawcall* CreateObjectDrawcall(const std::string& name, std::vector<ObjectDrawcall::Vertex>& vertices, std::vector<ObjectDrawcall::Index>& indices, const ObjectDrawcall::ObjectProperties& prop) {
-            if (objects_.contains(name)) {
+            if (drawcalls.contains(name)) {
                 LFATAL("Cannot create object drawcall {}: drawcall already exists");
             }
             auto* drawcall = new ObjectDrawcall(app_, pipeline_, scene_info_, name, vertices, indices, prop);
-            objects_[name] = drawcall;
-            return static_cast<ObjectDrawcall*>(objects_[name]);
+            drawcalls[name] = drawcall;
+            return static_cast<ObjectDrawcall*>(drawcalls[name]);
         }
 
         template<typename T>
         requires std::derived_from<T, Drawcall>
         T* GetDrawcall(const std::string& name) {
-            return static_cast<T*>(objects_.at(name));
+            return static_cast<T*>(drawcalls.at(name));
         }
 
         FreeCamera& GetCamera() {
@@ -295,6 +293,12 @@ namespace Prism
 
         ~RealisticScene() {
             app_->GetResourceManager().MarkAsExpired(scene_info_);
+            app_->GetCopyDispatcher().ReleaseSync();
+            app_->GetRenderDispatcher().ReleaseSync();
+            for (auto& pair : drawcalls) {
+                delete pair.second;
+                LDEBUG("Drawcall {} is released", pair.first);
+            }
         }
     };
 }

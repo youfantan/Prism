@@ -45,6 +45,10 @@ namespace Prism
             return fence_->GetCompletedValue();
         }
 
+        void ReleaseSignal() {
+            SetEvent(evt_);
+        }
+
         ~Fence() {
             CloseHandle(evt_);
         }
@@ -54,11 +58,10 @@ namespace Prism
         Fence* fence_;
         ComPtr<ID3D12CommandQueue> queue_;
         uint64_t value_;
-        HANDLE mutex_;
 
     public:
         Waitable(Fence& fence, ComPtr<ID3D12CommandQueue> queue) : fence_(&fence), queue_(queue), value_(0) {
-            mutex_ = CreateMutexW(nullptr, false, nullptr);
+
         }
         Waitable(const Waitable&) = delete;
         Waitable(Waitable&& w) noexcept : fence_(w.fence_), queue_(std::move(w.queue_)), value_(w.value_) {
@@ -72,14 +75,6 @@ namespace Prism
 
         void CPUWait() {
             fence_->CPUWait(value_);
-        }
-
-        void CPULockModify() {
-            WaitForSingleObject(mutex_, INFINITE);
-        }
-
-        void CPUUnlockModify() {
-            ReleaseMutex(mutex_);
         }
 
         bool Completed() const {

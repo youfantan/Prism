@@ -6,12 +6,12 @@ struct Pixel
     float3 normal : NORMAL;
 };
 
-cbuffer Presets : register(b0) {
+cbuffer Presets : register(b1) {
     row_major float4x4 world;
     uint tex_index;
 }
 
-cbuffer Scene : register(b1) {
+cbuffer Scene : register(b0) {
     row_major float4x4 vp;
     float4 camera_pos;
     uint dotlight_count;

@@ -36,7 +36,8 @@ namespace Prism
                         list->OMSetRenderTargets(1, &mrtv_, false, &dsv_);
                         list->ClearRenderTargetView(mrtv_, init_.rt_clear_color, 0, nullptr);
                     }
-                },[] {}
+                    return nullptr;
+                },[](void*) {}
             };
         }
 
@@ -48,8 +49,8 @@ namespace Prism
                     list->ResolveSubresource(back_buffer_->GetD3D12Resource(), 0, msaa_buffer_->GetD3D12Resource(), 0, init_.rt_format);
                 }
                 back_buffer_->Transition(D3D12_RESOURCE_STATE_PRESENT, list);
-            }, [] {}
-            };
+                return nullptr;
+            }, [](void*) {}};
         }
     };
 

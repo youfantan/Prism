@@ -17,6 +17,8 @@
 #include <bcrypt.h>
 #include <sstream>
 
+#include "mlog.h"
+
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
@@ -136,7 +138,7 @@ template<typename T>
 requires std::same_as<T, HRESULT>
 void CHECKHR(T t, const std::source_location& location = std::source_location::current()) {
     if (!SUCCEEDED(t)) {
-        std::cout << std::format("Error Occurred at {}:{} while calling function {}\n", location.file_name(), location.line(), location.function_name());
+        LFATAL("DirectX API call returned an error");
     }
 }
 

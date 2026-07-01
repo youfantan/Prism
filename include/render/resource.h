@@ -91,6 +91,7 @@ public:
             HeapType type;
             size_t element_size;
             size_t element_count;
+            size_t layers;
         } Buffer;
         struct {
             size_t stride;
@@ -98,46 +99,49 @@ public:
         } Tex2D;
     };
 protected:
+    std::string name_;
     DXAllocator* allocator_;
-    ID3D12Resource* resource_;
+    std::vector<ID3D12Resource*> resources_;
     WaitableSet<WAITABLE_COUNT> waitable_set_;
     D3D12_RESOURCE_STATES states_;
     ResourceMeta meta_;
 public:
-    Resource(const std::string& name, DXAllocator* allocator, const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws, D3D12_CLEAR_VALUE* clr = nullptr) : allocator_(allocator), states_(initial_states), waitable_set_(std::move(ws)), meta_(meta) {
+    Resource(const std::string& name, DXAllocator* allocator, const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws, D3D12_CLEAR_VALUE* clr = nullptr) : name_(name), allocator_(allocator), states_(initial_states), waitable_set_(std::move(ws)), meta_(meta) {
         if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
             if (meta.Buffer.type == HeapType::UPLOAD) {
-                resource_ = allocator_->CreateLocalResource(desc, states_, clr);
+                for (int i = 0; i < meta.Buffer.layers; ++i) {
+                    resources_.push_back(allocator_->CreateLocalResource(desc, states_, clr));
+                    resources_.back()->SetName(ConvertStringToWstring(std::format("{} #{}", name, i)).c_str());
+                }
             } else if (meta.Buffer.type == HeapType::DEFAULT) {
-                resource_ = allocator_->CreateRemoteResource(desc, states_, clr);
+                resources_.push_back(allocator_->CreateRemoteResource(desc, states_, clr));
             }
         } else if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) {
-            resource_ = allocator_->CreateRemoteResource(desc, states_, clr);
+            resources_.push_back(allocator_->CreateRemoteResource(desc, states_, clr));
         } else {
             LFATAL("Cannot create resource {}: unexcepted construct args", name);
         }
-        resource_->SetName(ConvertStringToWstring(name).c_str());
     }
 
-    Resource(const std::string& name, DXAllocator* allocator, ID3D12Resource* res, D3D12_RESOURCE_STATES current_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws) : allocator_(allocator), states_(current_states), waitable_set_(std::move(ws)), meta_(meta), resource_(res) {
-        resource_->SetName(ConvertStringToWstring(name).c_str());
+    Resource(const std::string& name, DXAllocator* allocator, ID3D12Resource* res, D3D12_RESOURCE_STATES current_states, const ResourceMeta& meta, WaitableSet<WAITABLE_COUNT>&& ws) : allocator_(allocator), states_(current_states), waitable_set_(std::move(ws)), meta_(meta) {
+        resources_.push_back(res);
+        resources_[0]->SetName(ConvertStringToWstring(name).c_str());
     }
 
     Resource(const Resource&) = delete;
-    Resource(Resource&& r) : allocator_(r.allocator_), resource_(r.resource_), waitable_set_(std::move(r.waitable_set_)), states_(r.states_), meta_(r.meta_) {
+    Resource(Resource&& r) : allocator_(r.allocator_), resources_(std::move(r.resources_)), waitable_set_(std::move(r.waitable_set_)), states_(r.states_), meta_(r.meta_) {
         r.allocator_ = nullptr;
-        r.resource_ = nullptr;
     }
 
-    std::string GetResourceName() {
+    std::string GetResourceName(size_t layer = 0) {
         UINT size = 0;
-        resource_->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
+        resources_[layer]->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
         std::wstring name;
         if (size == 0) {
             name = L"Unnamed Object";
         } else {
             name.resize(size / sizeof(wchar_t));
-            resource_->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
+            resources_[layer]->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, &name[0]);
         }
         return ConvertWstringToString(name);
     }
@@ -146,8 +150,8 @@ public:
         return meta_;
     }
 
-    ID3D12Resource* GetD3D12Resource() {
-        return resource_;
+    ID3D12Resource* GetD3D12Resource(size_t layer = 0) {
+        return resources_[layer];
     }
 
     Waitable& GetRenderWaitable() {
@@ -158,24 +162,12 @@ public:
         return waitable_set_.Get<COPY_WAITABLE_INDEX>();
     }
 
-    void RenderGPUSync(uint64_t fence_value) {
-        GetRenderWaitable().GPUWait();
-        GetCopyWaitable().CPUWait();
-        GetRenderWaitable().GetFenceValue() = fence_value;
-    }
-
-    void CopyGPUSync(uint64_t fence_value) {
-        GetRenderWaitable().GPUWait();
-        GetCopyWaitable().CPUWait();
-        GetCopyWaitable().GetFenceValue() = fence_value;
-    }
-
     void Transition(D3D12_RESOURCE_STATES new_state, ComPtr<ID3D12GraphicsCommandList>& list) {
         D3D12_RESOURCE_BARRIER barrier {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
         D3D12_RESOURCE_TRANSITION_BARRIER transition {};
-        barrier.Transition.pResource = resource_;
+        barrier.Transition.pResource = resources_[0];
         barrier.Transition.StateBefore = states_;
         barrier.Transition.StateAfter = new_state;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -184,10 +176,10 @@ public:
     }
 
     ~Resource() {
-        if (resource_ != nullptr) {
+        for (auto& r : resources_) {
             GetRenderWaitable().CPUWait();
             GetCopyWaitable().CPUWait();
-            allocator_->FreeResource(resource_);
+            allocator_->FreeResource(r);
         }
     }
 
@@ -200,10 +192,15 @@ public:
             && src->GetResourceMeta().Buffer.element_count * src->GetResourceMeta().Buffer.element_size <= dest->GetResourceMeta().Buffer.element_count * dest->GetResourceMeta().Buffer.element_size
             ) {
             copy_dispatcher.PostRecordTask({{[=](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                src->CopyGPUSync(nfv);
-                dest->CopyGPUSync(nfv);
+                src->GetRenderWaitable().GPUWait();
+                src->GetCopyWaitable().GPUWait();
+                src->GetCopyWaitable().GetFenceValue() = nfv;
+                dest->GetRenderWaitable().GPUWait();
+                dest->GetCopyWaitable().GPUWait();
+                dest->GetCopyWaitable().GetFenceValue() = nfv;
                 list->CopyResource(dest->GetD3D12Resource(), src->GetD3D12Resource());
-            }, [&] {}}});
+                return nullptr;
+            }, [&](void*) {}}});
             return true;
         }
         LFATAL("Cannot copy buffer {} to remote buffer {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
@@ -224,10 +221,15 @@ public:
                 dest_loc.pResource = dest->GetD3D12Resource();
                 dest_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
                 dest_loc.SubresourceIndex = 0;
-                src->CopyGPUSync(nfv);
-                dest->CopyGPUSync(nfv);
+                src->GetRenderWaitable().GPUWait();
+                src->GetCopyWaitable().GPUWait();
+                src->GetCopyWaitable().GetFenceValue() = nfv;
+                dest->GetRenderWaitable().GPUWait();
+                dest->GetCopyWaitable().GPUWait();
+                dest->GetCopyWaitable().GetFenceValue() = nfv;
                 list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
-            }, [] {}}});
+                return nullptr;
+            }, [](void*) {}}});
             return true;
         }
         LFATAL("Cannot copy buffer {} to texture {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
@@ -305,6 +307,7 @@ public:
                 };
                 device_->CreateShaderResourceView(res->GetD3D12Resource(), &srv_desc, handle);
                 res->GetResourceMeta().Tex2D.bind_index = i;
+                resident_[i] = true;
                 return i;
             }
         }
@@ -323,13 +326,14 @@ class ResourceManager {
     std::vector<ResourceHandle> expired_resource_;
     RecordDispatcher& render_dispatcher_;
     RecordDispatcher& copy_dispatcher_;
+    const dx_init_t& init_;
     TextureHeap tex_heap_;
 public:
-    ResourceManager(ComPtr<ID3D12Device> device, DXAllocator* allocator, RecordDispatcher& render_dispatcher, RecordDispatcher& copy_dispatcher, size_t tex_heap_size) : device_(device), allocator_(allocator), render_dispatcher_(render_dispatcher), copy_dispatcher_(copy_dispatcher), tex_heap_(device, tex_heap_size) {
+    ResourceManager(ComPtr<ID3D12Device> device, DXAllocator* allocator, RecordDispatcher& render_dispatcher, RecordDispatcher& copy_dispatcher, const dx_init_t& init) : device_(device), allocator_(allocator), render_dispatcher_(render_dispatcher), copy_dispatcher_(copy_dispatcher), init_(init), tex_heap_(device, init.max_texture_count) {
 
     }
 
-    ResourceHandle CreateLocalBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+    ResourceHandle CreateLocalBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr, bool single_layer = false) {
         size_t bytes = element_size * element_count;
         D3D12_RESOURCE_DESC desc {
             .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -347,7 +351,8 @@ public:
             .Buffer = {
                 .type = Resource::HeapType::UPLOAD,
                 .element_size = element_size,
-                .element_count = element_count
+                .element_count = element_count,
+                .layers = single_layer ? 1 : init_.buffer_count,
             }
         };
         ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
@@ -356,20 +361,18 @@ public:
     }
 
     template<typename T>
-    ResourceHandle CreateLocalBuffer(const std::string& name, std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
-        ResourceHandle rh = CreateLocalBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr);
+    ResourceHandle CreateLocalBuffer(const std::string& name, std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr, bool single_layer = false) {
+        ResourceHandle rh = CreateLocalBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr, single_layer);
         void* mapping;
         rh->GetD3D12Resource()->Map(0, nullptr, &mapping);
         memcpy(mapping, &vector[0], vector.size() * sizeof(T));
         rh->GetD3D12Resource()->Unmap(0, nullptr);
-        alive_resources_.push_back(rh);
         return rh;
     }
 
     template<typename T>
     ResourceHandle CreateLocalBuffer(const std::string& name, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
         ResourceHandle rh = CreateLocalBuffer(name, sizeof(T), 1, initial_states, flags, pclr);
-        alive_resources_.push_back(rh);
         return rh;
     }
 
@@ -391,7 +394,8 @@ public:
             .Buffer = {
                 .type = Resource::HeapType::DEFAULT,
                 .element_size = element_size,
-                .element_count = element_count
+                .element_count = element_count,
+                .layers = 1,
             }
         };
         ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
@@ -401,16 +405,14 @@ public:
 
     template<typename T>
     ResourceHandle CreateRemoteBuffer(const std::string& name, std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
-        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, vector, initial_states, flags, pclr);
+        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, vector, initial_states, flags, pclr, true);
         ResourceHandle rh = CreateRemoteBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr);
         Resource::CopyToRemoteBuffer(copy_dispatcher_, upload, rh);
-        alive_resources_.push_back(rh);
         MarkAsExpired(upload);
         return rh;
     }
 
     ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, D3D12_RESOURCE_STATES initial_states, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 },  bool bind_tex = true, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
-
         D3D12_RESOURCE_DESC desc {
             .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
             .Alignment = 0,
@@ -446,7 +448,7 @@ public:
         uint64_t total_bytes;
         device_->GetCopyableFootprints(&tex_desc, 0, 1, 0, &footprint, &rows, &row_pitch, &total_bytes);
         void* mapping;
-        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, 1, footprint.Footprint.RowPitch * rows, D3D12_RESOURCE_STATE_COMMON);
+        ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, 1, footprint.Footprint.RowPitch * rows, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE, nullptr, true);
         upload->GetD3D12Resource()->Map(0, nullptr, &mapping);
         CHECKHR(upload->GetD3D12Resource()->Map(0, nullptr, &mapping));
         auto* dest = static_cast<uint8_t *>(mapping) + footprint.Offset;
@@ -457,7 +459,6 @@ public:
         upload->GetD3D12Resource()->Unmap(0, nullptr);
         Resource::CopyToTexture(copy_dispatcher_, upload, texture, footprint);
         MarkAsExpired(upload);
-        alive_resources_.push_back(texture);
         return texture;
     }
 
@@ -499,97 +500,71 @@ public:
     }
 };
 
-template<typename S>
-class StructuredView {
-    ResourceHandle rh_;
-    S* ptr_;
-    size_t capacity_;
-    uint64_t ridx_ {};
-    uint64_t widx_ {};
-public:
-    StructuredView() = default;
-    StructuredView(ResourceHandle rh) : rh_(rh) {
-        rh->GetD3D12Resource()->Map(0, nullptr, reinterpret_cast<void**>(&ptr_));
-        capacity_ = rh->GetResourceMeta().Buffer.element_count * rh->GetResourceMeta().Buffer.element_size;
-    }
-    StructuredView(const StructuredView&) = delete;
-    StructuredView(StructuredView&& sv) noexcept : rh_(sv.rh_), ptr_(sv.ptr_), capacity_(sv.capacity_), ridx_(sv.ridx_), widx_(sv.widx_) {
-        sv.rh_ = nullptr;
-        sv.ptr_ = nullptr;
-        sv.capacity_ = 0;
-        sv.ridx_ = 0;
-        sv.widx_ = 0;
-    }
-
-    void Open(ResourceHandle rh) {
-        rh_ = rh;
-        rh->GetD3D12Resource()->Map(0, nullptr, reinterpret_cast<void**>(&ptr_));
-        capacity_ = rh->GetResourceMeta().Buffer.element_count * rh->GetResourceMeta().Buffer.element_size;
-    }
-
-    void Clear(const S& clrv) {
-        rh_->GetRenderWaitable().CPULockModify();
-        for (size_t i = 0; i < capacity_; ++i) {
-            *ptr_[i] = clrv;
+    template<typename S>
+    class StructuredView {
+        ResourceHandle rh_;
+        size_t layer_;
+        size_t capacity_;
+        struct IOPtr {
+            size_t wpos;
+            size_t rpos;
+            S* mapping;
+        };
+        std::vector<IOPtr> io_ptrs_;
+    public:
+        StructuredView() = default;
+        StructuredView(ResourceHandle rh) {
+            Create(rh);
         }
-        widx_ = 0;
-        ridx_ = 0;
-        rh_->GetRenderWaitable().CPUUnlockModify();
-    }
+        StructuredView(const StructuredView&) = delete;
+        StructuredView(StructuredView&&) = delete;
 
-    void Clear() {
-        rh_->GetRenderWaitable().CPULockModify();
-        memset(ptr_, 0, capacity_);
-        widx_ = 0;
-        ridx_ = 0;
-        rh_->GetRenderWaitable().CPUUnlockModify();
-    }
-
-    void Modify(const std::function<void(S*)>& callback) {
-        rh_->GetRenderWaitable().CPULockModify();
-        callback(ptr_);
-        rh_->GetRenderWaitable().CPUUnlockModify();
-    }
-
-    const S& operator[](size_t i) const {
-        return ptr_[i];
-    }
-
-    bool Append(const S& s) {
-        rh_->GetRenderWaitable().CPULockModify();
-        if (widx_ == capacity_) {
-            rh_->GetRenderWaitable().CPUUnlockModify();
-            return false;
+        void Create(ResourceHandle rh) {
+            if (rh->GetResourceMeta().Buffer.type != Resource::HeapType::UPLOAD) {
+                LFATAL("Cannot create StructureView of resource{}: type validation failed", rh->GetResourceName());
+            }
+            rh_ = rh;
+            for (size_t i = 0; i < rh_->GetResourceMeta().Buffer.layers; ++i) {
+                S* ptr;
+                rh_->GetD3D12Resource(i)->Map(0, nullptr, reinterpret_cast<void**>(&ptr));
+                io_ptrs_.emplace_back(0, 0, ptr);
+            }
+            layer_ = 0;
+            capacity_ = rh->GetResourceMeta().Buffer.element_count;
         }
-        ptr_[widx_] = s;
-        ++widx_;
-        rh_->GetRenderWaitable().CPUUnlockModify();
-        return true;
-    }
 
-    std::optional<S*> Fetch() {
-        if (ridx_ == capacity_) {
-            return std::nullopt;
+        uint64_t SelectLayer(size_t layer) {
+            uint64_t old_layer = layer_;
+            if (layer != layer_) {
+                layer_ = layer;
+            }
+            return old_layer;
         }
-        S* r = &ptr_[ridx_];
-        ++ridx_;
-        return r;
-    }
 
-    uint64_t GetReadPos() const {
-        return ridx_;
-    }
+        void Append(const S& s) {
+            auto& ioptr = io_ptrs_[layer_];
+            if (ioptr.wpos >= capacity_) {
+                LFATAL("Cannot append data to StructureView when modify resource {}: out of bound", rh_->GetResourceName(layer_));
+            }
+            ioptr.mapping[ioptr.wpos] = s;
+            ++ioptr.wpos;
+        }
 
-    uint64_t GetWritePos() const {
-        return widx_;
-    }
+        S& operator[](uint64_t i) {
+            if (i > capacity_) {
+                LFATAL("Cannot access StructureView when modify resource {}: out of bound", rh_->GetResourceName(layer_));
+            }
+            return io_ptrs_[layer_].mapping[i];
+        }
 
-    size_t GetCapacity() const {
-        return capacity_;
-    }
+        void ResetWritePos() {
+            io_ptrs_[layer_].wpos = 0;
+        }
 
-    ~StructuredView() {
-        rh_->GetD3D12Resource()->Unmap(0, nullptr);
-    }
-};
+        ~StructuredView() {
+            for (size_t i = 0; i < rh_->GetResourceMeta().Buffer.layers; ++i) {
+                rh_->GetD3D12Resource(i)->Unmap(0, nullptr);
+            }
+        }
+    };
 }

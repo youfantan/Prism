@@ -3,7 +3,7 @@
 #include <render/framework.h>
 
 LRESULT Prism::Window::RenderWindowProcess(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    PrismApp* app;
+    PrismApp* app = nullptr;
     if (uMsg != WM_NCCREATE) {
         app = reinterpret_cast<PrismApp*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
     }
@@ -17,28 +17,31 @@ LRESULT Prism::Window::RenderWindowProcess(HWND hwnd, UINT uMsg, WPARAM wParam, 
 
         case WM_DESTROY: {
             PostQuitMessage(0);
+            if (app != nullptr) {
+                app->OnClose(wParam);
+            }
             return 0;
         }
 
         case WM_ACTIVATE: {
             if (app != nullptr) {
                 app->OnActive(wParam);
-                break;
             }
+            break;
         }
 
         case WM_KEYDOWN: {
             if (app != nullptr) {
                 app->OnKeyDown(wParam);
-                break;
             }
+            break;
         }
 
         case WM_KEYUP: {
             if (app != nullptr) {
                 app->OnKeyUp(wParam);
-                break;
             }
+            break;
         }
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);

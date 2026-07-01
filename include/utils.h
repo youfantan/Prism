@@ -178,17 +178,19 @@ private:
     uint32_t interval_;
     std::function<void(MetronomeTimer& mt)> callback_;
     bool flag_;
+    std::chrono::time_point<std::chrono::system_clock> last_;
 public:
     MetronomeTimer(uint32_t interval, const std::function<void(MetronomeTimer&)>& callback) : interval_(interval), callback_(callback), flag_(false) {
-
+        last_ = std::chrono::system_clock::now();
     }
 
     void Start() {
         flag_ = true;
         while (flag_) {
-            auto next = std::chrono::system_clock::now() + std::chrono::milliseconds(interval_);
+            auto next = last_ + std::chrono::milliseconds(interval_);
             callback_(*this);
             std::this_thread::sleep_until(next);
+            last_ = std::chrono::system_clock::now();
         }
     }
 
@@ -250,3 +252,10 @@ inline uint32_t RGBA32(const DirectX::XMFLOAT4& xf4) {
 template<typename T, typename U>
 concept decay_as = std::same_as<std::decay_t<T>, U>;
 }
+
+struct THREADNAME_INFO {
+    DWORD dwType;
+    LPCSTR pName;
+    DWORD dwThreadID;
+    DWORD dwFlags;
+};

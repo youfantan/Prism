@@ -39,9 +39,18 @@ namespace Prism
             m.ib_ = nullptr;
         }
 
+        /*
+         * At any times, a mesh could have the status by following:
+         *      A. Copy process in progressing. (R/W)
+         *      B. Render process in progressing. (Readonly)
+         * So we only need GPU to wait for copy, and set render waitable to avoid release when inuse.
+         *
+         */
         void RenderSync(uint64_t fence_value) {
-            vb_->RenderGPUSync(fence_value);
-            ib_->RenderGPUSync(fence_value);
+            vb_->GetCopyWaitable().GPUWait();
+            ib_->GetCopyWaitable().GPUWait();
+            vb_->GetRenderWaitable().GetFenceValue() = fence_value;
+            ib_->GetRenderWaitable().GetFenceValue() = fence_value;
         }
 
         ResourceHandle GetVertexBuffer() const {

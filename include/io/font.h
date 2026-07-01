@@ -40,6 +40,7 @@ private:
     size_t atlas_;
 
     Font(const std::string& name, const std::string& font_tex_path, const std::string& font_uv_path, ResourceManager& res_mgr) : res_mgr_(res_mgr) {
+        LDEBUG("Loading font {}({}, {})", name, font_tex_path, font_uv_path);
         auto tex_img = ImageLoader::LoadJPG<ImageFormatGray>(font_tex_path);
         if (!tex_img.has_value()) {
             LFATAL("Cannot load texture of font tex {}", font_tex_path);

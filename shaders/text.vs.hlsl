@@ -16,6 +16,8 @@ cbuffer UIPresets : register(b0) {
     uint height;
 }
 
+StructuredBuffer<FontMeta> Fonts : register(t0);
+
 struct Vertex
 {
     float3 element : POSITION;
@@ -35,10 +37,7 @@ struct Pixel {
 };
 
 Pixel main(Vertex v) {
-    StructuredBuffer<FontMeta> Fonts = ResourceDescriptorHeap[NonUniformResourceIndex(v.tex_idx)];
     FontMeta fm = Fonts[v.char_idx];
-    float scaled_fwidth = fm.width * v.scale_factor;
-    float scaled_fheight = fm.height * v.scale_factor;
     float ndc_scaled_bearing_x = fm.bearing_x * v.scale_factor / width;
     float ndc_scaled_bearing_y = fm.bearing_y * v.scale_factor / height;
     float ndc_start_x = -1.0f + (float)(v.rel_pos.x) / (width / 2);

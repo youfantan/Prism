@@ -81,17 +81,22 @@ namespace Prism
             }
             all.push_back(rt.FinishRender());
             all.push_back({[&](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                return nullptr;
+            }, [&](void*) {
                 if (init_.enable_vsync) {
-                    swapchain_->Present(1, 0);
+                    CHECKHR(swapchain_->Present(1, 0));
                 } else {
-                    swapchain_->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+                    CHECKHR(swapchain_->Present(0, DXGI_PRESENT_ALLOW_TEARING));
                 }
-            }, [&] {
                 mgr_.Cleanup();
             }});
             render_dispatcher_.PostRecordTask(std::move(all));
             ++index_;
             if (index_ == init_.buffer_count) index_ = 0;
+        }
+
+        uint64_t GetCurrentIndex() const {
+            return index_;
         }
 
     };
