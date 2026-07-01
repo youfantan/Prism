@@ -5,12 +5,10 @@
 namespace Prism
 {
     class FreeCamera {
-    public:
-
-    private:
         XMFLOAT3 camera_pos_;
         XMFLOAT3 up_direction_ { 0.0f, 1.0f, 0.0f };
         XMMATRIX projection_;
+        XMMATRIX orthographic_proj_;
         float speed_ { 10.0f };
         float sensitivity_ { 0.002f };
         HWND hwnd_;
@@ -57,6 +55,7 @@ namespace Prism
         }
 
         void MakeViewAndProjection(XMFLOAT4X4& mat);
+        void MakeViewAndProjection(const XMFLOAT4& focus, XMFLOAT4X4& mat);
     };
 
     class KMInput {

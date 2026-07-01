@@ -41,6 +41,13 @@
       "path": "light.ps.hlsl",
       "profile": "ps_6_6",
       "entry": "main"
+    },
+    {
+      "name": "shadow",
+      "type": "vs",
+      "path": "shadow.vs.hlsl",
+      "profile": "vs_6_6",
+      "entry": "main"
     }
   ]
 }

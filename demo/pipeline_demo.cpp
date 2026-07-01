@@ -98,7 +98,7 @@ public:
         scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
         ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, stone_tex);
         scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
-        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(3, 1, 0, 0.5, { 0.5f, 0.5f, 1.0f, 1.0f });
+        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 0, 0.5, { 1.0f, 0.81f, 0.80f, 1.0f });
         scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);
     }
 
@@ -110,11 +110,13 @@ public:
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
         pyramid_drawcall->ApplyProperties();
         ground_drawcall->ApplyProperties();
-        ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 30, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
-        ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 50, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
-        ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. To learn more, visit https://github.com/youfantan/Prism", 30, 70, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
-        ctx_.Render({ light_src_drawcall->CreateRenderProcess(), pyramid_drawcall->CreateRenderProcess(), ground_drawcall->CreateRenderProcess(), ui_.CreateRenderProcess() }, [&]() {
-            float delta = perf_.DeltaMs();
+        ui_.DrawString("UbuntuMono", "Realistic Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. Visit https://github.com/youfantan/Prism to learn more", 30, 90, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
+        ctx_.Shadow( { pyramid_drawcall->CreateShadowProcess(), ground_drawcall->CreateShadowProcess() } );
+        ctx_.Render({ light_src_drawcall->CreateRenderProcess(), pyramid_drawcall->CreateRenderProcess(), ground_drawcall->CreateRenderProcess(), ui_.CreateRenderProcess() }, [&] {
+            perf_.DeltaMs();
         });
     }
     void OnKeyUp(WPARAM wparam) override {
@@ -155,12 +157,12 @@ int main() {
         .copy_threads_count = 1,
         .lists_per_render_thread = 2,
         .lists_per_copy_thread = 5,
-        .fps_limit = 1001,
+        .fps_limit = 1000,
         .max_texture_count = 128,
         .msaa_type = MSAAType::MSAA_4X,
         .rt_format = DXGI_FORMAT_R8G8B8A8_UNORM,
         .ds_format = DXGI_FORMAT_D32_FLOAT,
-        .rt_clear_color = {0.2f, 0.2f, 0.2f, 1.0f},
+        .rt_clear_color = {0.1f, 0.1f, 0.1f, 1.0f},
         .enable_vsync = true,
         .shaders_dir = "shaders",
         .textures_dir = "textures",

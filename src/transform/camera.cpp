@@ -3,7 +3,9 @@
 Prism::FreeCamera::FreeCamera(HWND window, uint64_t width, uint64_t height, uint16_t fov_angle, float near_z, float far_z) : hwnd_(window), camera_pos_{ 0.0f, 2.0f, -2.0f }, yaw_(0.0f) , pitch_(0.0f), projection_() {
     float r_fov = (static_cast<float>(fov_angle) / 180.0f) * XM_PI;
     float aspect = static_cast<float>(width) / static_cast<float>(height);
+    float half = 10.0f;
     projection_ = XMMatrixPerspectiveFovLH(r_fov, aspect, near_z, far_z);
+    orthographic_proj_ = XMMatrixOrthographicLH(half * 2 * aspect, half * 2, near_z, far_z);
 }
 
 void Prism::FreeCamera::MakeViewAndProjection(XMFLOAT4X4& mat) {
@@ -13,6 +15,15 @@ void Prism::FreeCamera::MakeViewAndProjection(XMFLOAT4X4& mat) {
     XMVECTOR up = XMLoadFloat3(&up_direction_);
     XMMATRIX view = XMMatrixLookAtLH(eye, focus, up);
     XMMATRIX vp = view * projection_;
+    XMStoreFloat4x4(&mat, vp);
+}
+
+void Prism::FreeCamera::MakeViewAndProjection(const XMFLOAT4& src, XMFLOAT4X4& mat) {
+    XMVECTOR eye = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&src));
+    XMVECTOR scene_center = XMVectorSet(0, -1.5f, 0, 0);
+    XMVECTOR up = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+    XMMATRIX view = XMMatrixLookAtLH(eye, scene_center, up);
+    XMMATRIX vp = view * orthographic_proj_;
     XMStoreFloat4x4(&mat, vp);
 }
 

@@ -105,8 +105,9 @@ inline std::wstring ConvertStringToWstring(const std::string& src) {
         LFATAL("Cannot convert string to wstring, Win32 API MultiByteToWideChar() returns length == 0");
         return {};
     }
-    wchar_t* dst = (wchar_t*)malloc(len * sizeof(wchar_t));
-    MultiByteToWideChar(CP_ACP, 0, src.data(), -1, dst, len);
+    std::wstring dst;
+    dst.resize(len - 1);
+    MultiByteToWideChar(CP_ACP, 0, src.data(), -1, &dst[0], len);
     return dst;
 }
 inline std::string ConvertWstringToString(const std::wstring& src) {
@@ -116,8 +117,10 @@ inline std::string ConvertWstringToString(const std::wstring& src) {
         LFATAL("Cannot convert wstring to string, Win32 API WideCharToMultiByte() returns length == 0");
         return {};
     }
-    char* dst = (char*)malloc(len);
-    WideCharToMultiByte( CP_ACP, 0, src.data(), -1, dst, len, nullptr, nullptr);
+    std::string dst;
+    dst.resize(len - 1);
+    memset(dst.data(), 0, dst.size());
+    WideCharToMultiByte( CP_ACP, 0, src.data(), -1, &dst[0], len, nullptr, nullptr);
     return dst;
 }
 

@@ -96,6 +96,7 @@ public:
         struct {
             size_t stride;
             uint32_t bind_index;
+            DXGI_FORMAT bind_format;
         } Tex2D;
     };
 protected:
@@ -163,6 +164,7 @@ public:
     }
 
     void Transition(D3D12_RESOURCE_STATES new_state, ComPtr<ID3D12GraphicsCommandList>& list) {
+        if (new_state == states_) return;
         D3D12_RESOURCE_BARRIER barrier {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -295,7 +297,7 @@ public:
                 D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUHandle(i);
                 auto desc = res->GetD3D12Resource()->GetDesc();
                 D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
-                    .Format = desc.Format,
+                    .Format = res->GetResourceMeta().Tex2D.bind_format,
                     .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
                     .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
                     .Texture2D = {
@@ -412,7 +414,7 @@ public:
         return rh;
     }
 
-    ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, D3D12_RESOURCE_STATES initial_states, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 },  bool bind_tex = true, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+    ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, DXGI_FORMAT bind_fmt, D3D12_RESOURCE_STATES initial_states, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 },  bool bind_tex = true, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
         D3D12_RESOURCE_DESC desc {
             .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
             .Alignment = 0,
@@ -428,7 +430,8 @@ public:
         Resource::ResourceMeta meta = {
             .Tex2D = {
                 .stride = BitsPerPixel(fmt) / 8,
-                .bind_index = 0
+                .bind_index = 0,
+                .bind_format = bind_fmt,
             }
         };
         ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
@@ -440,7 +443,7 @@ public:
     template<typename ImageFormat>
     requires is_image_format<ImageFormat>
     ResourceHandle CreateTexture2DFromImage(const std::string& name, Image<ImageFormat>& img) {
-        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
+        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
         auto tex_desc = texture->GetD3D12Resource()->GetDesc();
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
         uint32_t rows;

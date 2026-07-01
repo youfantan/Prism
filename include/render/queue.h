@@ -68,7 +68,11 @@ private:
                 ctx->fence->GPUSync(nfv, ctx->queue);
                 recorder->fence_value = nfv;
                 for (size_t i = 0; i < task.size(); ++i) {
-                    task[i].sync(record_results[i]);
+                    if (task[i].sync) {
+                        task[i].sync(record_results[i]);
+                    } else if (record_results[i] != nullptr) {
+                        LDEBUG("Record returns non-void pointer for sync callback, but sync callback is empty");
+                    }
                 }
             } else {
                 ReleaseMutex(ctx->mutex);
