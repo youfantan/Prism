@@ -42,7 +42,8 @@ float4 main(Pixel p) : SV_Target {
         float diffuse = saturate(dot(N, L));
         float3 R = reflect(-L, N);
         float intensity = pow(saturate(dot(R, V)), 32);
-        result += dotlight_color[i].rgb * diffuse * tex_color + intensity * dotlight_color[i].rgb;
+        result += (dotlight_color[i].rgb * diffuse * tex_color + intensity * dotlight_color[i].rgb) * shadow;
     }
-    return float4(result * shadow, 1.0);
+    float3 ambient = float3(0.1, 0.1, 0.1) * tex_color;
+    return float4(result + ambient, 1.0);
 }

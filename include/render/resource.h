@@ -414,7 +414,25 @@ public:
         return rh;
     }
 
-    ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, DXGI_FORMAT bind_fmt, D3D12_RESOURCE_STATES initial_states, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 },  bool bind_tex = true, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+    struct TextureBindSettings {
+        bool bind_to_heap;
+        DXGI_FORMAT bind_format;
+    };
+
+    constexpr static TextureBindSettings NO_TEXTURE_BIND = {
+        .bind_to_heap = false,
+        .bind_format = DXGI_FORMAT_UNKNOWN,
+    };
+
+    /*
+     * Set bind_to_heap to true and bind_format to DXGI_FORMAT_UNKNOWN means bind format is same to resource format.
+     */
+    constexpr static TextureBindSettings AUTO_TEXTURE_BIND = {
+        .bind_to_heap = true,
+        .bind_format = DXGI_FORMAT_UNKNOWN,
+    };
+
+    ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, D3D12_RESOURCE_STATES initial_states, const TextureBindSettings& bind_settings = AUTO_TEXTURE_BIND, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 }, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
         D3D12_RESOURCE_DESC desc {
             .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
             .Alignment = 0,
@@ -427,15 +445,17 @@ public:
             .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
             .Flags = flags,
         };
+        DXGI_FORMAT bind_fmt = bind_settings.bind_format;
+        if (bind_settings.bind_to_heap && bind_settings.bind_format == DXGI_FORMAT_UNKNOWN) bind_fmt = fmt;
         Resource::ResourceMeta meta = {
             .Tex2D = {
                 .stride = BitsPerPixel(fmt) / 8,
                 .bind_index = 0,
-                .bind_format = bind_fmt,
+                .bind_format = bind_settings.bind_format,
             }
         };
         ResourceHandle res = new Resource(name, allocator_, desc, initial_states, meta, WaitableSet<2>(Waitable(render_dispatcher_.GetFence(), render_dispatcher_.GetCommandQueue()), Waitable(copy_dispatcher_.GetFence(), copy_dispatcher_.GetCommandQueue())), pclr);
-        if (bind_tex) tex_heap_.BindTexture(res);
+        if (bind_settings.bind_to_heap) tex_heap_.BindTexture(res);
         alive_resources_.push_back(res);
         return res;
     }
@@ -443,7 +463,7 @@ public:
     template<typename ImageFormat>
     requires is_image_format<ImageFormat>
     ResourceHandle CreateTexture2DFromImage(const std::string& name, Image<ImageFormat>& img) {
-        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
+        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
         auto tex_desc = texture->GetD3D12Resource()->GetDesc();
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
         uint32_t rows;

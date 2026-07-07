@@ -8,8 +8,7 @@ namespace Prism
         XMFLOAT3 camera_pos_;
         XMFLOAT3 up_direction_ { 0.0f, 1.0f, 0.0f };
         XMMATRIX projection_;
-        XMMATRIX orthographic_proj_;
-        float speed_ { 10.0f };
+        float speed_ { 8.0f };
         float sensitivity_ { 0.002f };
         HWND hwnd_;
         bool is_focus_;
@@ -55,7 +54,7 @@ namespace Prism
         }
 
         void MakeViewAndProjection(XMFLOAT4X4& mat);
-        void MakeViewAndProjection(const XMFLOAT4& focus, XMFLOAT4X4& mat);
+        XMMATRIX MakeViewAndProjection();
     };
 
     class KMInput {
@@ -80,5 +79,51 @@ namespace Prism
     public:
         KMInput(HWND hwnd, const keyboard_control_key_mappings_t& mappings);
         void UpdateFreeCamera(FreeCamera& fc);
+    };
+
+    class ShadowCamera {
+        XMFLOAT4 camera_pos_{};
+        XMFLOAT4 light_pos_{};
+        XMFLOAT4 scene_center_{};
+        float scene_radius_ = 1.0f;
+    public:
+        ShadowCamera() = default;
+
+        void SetSceneBounds(float cx, float cy, float cz, float radius) {
+            scene_center_ = { cx, cy, cz, 0.0f };
+            scene_radius_ = radius;
+        }
+
+        void SetSceneBounds(const XMFLOAT3& center, float radius) {
+            scene_center_ = { center.x, center.y, center.z, 0.0f };
+            scene_radius_ = radius;
+        }
+
+        void Update(FreeCamera& camera, const XMFLOAT4& light_pos) {
+            light_pos_ = light_pos;
+            camera_pos_ = camera.GetCameraPos4();
+        }
+
+        void MakeLightVP(XMFLOAT4X4& dest) {
+            XMVECTOR light_pos = XMLoadFloat4(&light_pos_);
+            XMVECTOR target = XMLoadFloat4(&scene_center_);
+            XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+            XMMATRIX view = XMMatrixLookAtLH(light_pos, target, up);
+
+            XMFLOAT3 center_ls;
+            XMStoreFloat3(&center_ls, XMVector3TransformCoord(target, view));
+
+            float r = scene_radius_;
+            float l = center_ls.x - r;
+            float b = center_ls.y - r;
+            float n = center_ls.z - r;
+            float rt = center_ls.x + r;
+            float t = center_ls.y + r;
+            float f = center_ls.z + r;
+            if (n < 0.01f) n = 0.01f;
+
+            XMMATRIX proj = XMMatrixOrthographicOffCenterLH(l, rt, b, t, n, f);
+            XMStoreFloat4x4(&dest, XMMatrixMultiply(view, proj));
+        }
     };
 }

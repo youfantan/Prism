@@ -5,6 +5,8 @@
 #include <render/mesh.h>
 #include <render/drawcall.h>
 
+#include "render/render_pass.h"
+
 namespace Prism
 {
     struct RealisticSceneInfo {
@@ -157,7 +159,6 @@ namespace Prism
     private:
         PrismApp* app_;
         LightSrcPipeline& pipeline_;
-        std::string name_;
         Mesh<Vertex, Index> mesh_;
         ResourceHandle light_info_;
         ResourceHandle scene_info_;
@@ -165,7 +166,7 @@ namespace Prism
         uint16_t bind_to_index_;
 
     public:
-        LightSrcDrawcall(PrismApp* app, LightSrcPipeline& pipeline, ResourceHandle scene_info, const std::string& name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const LightSrcProperties& prop, uint16_t bind_to) : app_(app), pipeline_(pipeline), scene_info_(scene_info), name_(name), mesh_(name, vertices, indices, app_->GetResourceManager()), properties_(prop), bind_to_index_(bind_to) {
+        LightSrcDrawcall(PrismApp* app, LightSrcPipeline& pipeline, ResourceHandle scene_info, const std::string& name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const LightSrcProperties& prop, uint16_t bind_to) : app_(app), pipeline_(pipeline), scene_info_(scene_info), mesh_(name, vertices, indices, app_->GetResourceManager()), properties_(prop), bind_to_index_(bind_to) {
             light_info_ = app_->GetResourceManager().CreateLocalBuffer<LightInfo>("LightInfo_" + name, D3D12_RESOURCE_STATE_COMMON);
             StructuredView<LightInfo> light_info(light_info_);
             StructuredView<RealisticSceneInfo> sc_info(scene_info_);
@@ -201,7 +202,7 @@ namespace Prism
             scene_info[0].dotlight_colors[bind_to_index_] = properties_.color;
         }
 
-        RecordDispatcher::GPUProcess CreateRenderProcess() override {
+        RecordDispatcher::RecordProcess CreateRenderProcess() override {
             return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                 mesh_.RenderSync(nfv);
                 light_info_->GetRenderWaitable().GetFenceValue() = nfv;
@@ -360,8 +361,8 @@ namespace Prism
                     .CullMode = D3D12_CULL_MODE_BACK,
                     .FrontCounterClockwise = false,
                     .DepthBias = 1000,
-                    .DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP,
-                    .SlopeScaledDepthBias = 2.0f,
+                    .DepthBiasClamp = 0.0f,
+                    .SlopeScaledDepthBias = 1.0f,
                     .DepthClipEnable = true,
                     .MultisampleEnable = false,
                     .AntialiasedLineEnable = false,
@@ -413,6 +414,7 @@ namespace Prism
 
     private:
         PrismApp* app_;
+        ShadowRenderPass& shadow_rp_;
         ObjectPipeline& pipeline_;
         ShadowPipeline& shadow_pipeline_;
         ResourceHandle scene_info_;
@@ -423,7 +425,7 @@ namespace Prism
         uint64_t sync_value_;
 
     public:
-        ObjectDrawcall(PrismApp* app, ObjectPipeline& pipeline, ShadowPipeline& shadow_pipeline, ResourceHandle scene_info, const std::string& object_name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const ObjectProperties& prop) : app_(app), pipeline_(pipeline), shadow_pipeline_(shadow_pipeline), scene_info_(scene_info), mesh_(object_name, vertices, indices, app->GetResourceManager()), properties_(prop) {
+        ObjectDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ObjectPipeline& pipeline, ShadowPipeline& shadow_pipeline, ResourceHandle scene_info, const std::string& object_name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const ObjectProperties& prop) : app_(app), shadow_rp_(shadow_rp), pipeline_(pipeline), shadow_pipeline_(shadow_pipeline), scene_info_(scene_info), mesh_(object_name, vertices, indices, app->GetResourceManager()), properties_(prop) {
             object_info_ = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
             shadow_info_ = app_->GetResourceManager().CreateLocalBuffer<ShadowInfo>("ShadowInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
         }
@@ -438,14 +440,14 @@ namespace Prism
             StructuredView<ObjectInfo> object_info(object_info_);
             object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
             object_info[0].tex_index = properties_.texture->GetResourceMeta().Tex2D.bind_index;
-            object_info[0].shadow_index = app_->GetRenderContext().GetCurrentTarget().GetShadowMap()->GetResourceMeta().Tex2D.bind_index;
+            object_info[0].shadow_index = shadow_rp_.GetFrameResource(app_->GetRenderContext().GetCurrentIndex()).shadow_map->GetResourceMeta().Tex2D.bind_index;
             MakeWorldMatrix(properties_, object_info[0].world);
             StructuredView<ShadowInfo> shadow_info(shadow_info_);
             shadow_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
             MakeWorldMatrix(properties_, shadow_info[0].world);
         }
 
-        RecordDispatcher::GPUProcess CreateShadowProcess() {
+        RecordDispatcher::RecordProcess CreateShadowProcess() {
             return {
                 [&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                     shadow_info_->GetRenderWaitable().GetFenceValue() = nfv;
@@ -462,7 +464,7 @@ namespace Prism
             };
         }
 
-        RecordDispatcher::GPUProcess CreateRenderProcess() override {
+        RecordDispatcher::RecordProcess CreateRenderProcess() override {
             return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                 sync_value_ = nfv;
                 mesh_.RenderSync(nfv);
@@ -492,6 +494,8 @@ namespace Prism
 
     class RealisticScene {
         PrismApp* app_;
+        BackBufferRenderPass rp_;
+        ShadowRenderPass shadow_rp_;
         ObjectDrawcall::ObjectPipeline obj_pipeline_;
         ObjectDrawcall::ShadowPipeline shadow_pipeline_;
         LightSrcDrawcall::LightSrcPipeline light_src_pipeline_;
@@ -499,8 +503,9 @@ namespace Prism
         std::unordered_map<std::string, Drawcall*> drawcalls;
         FreeCamera camera_;
         KMInput input_;
+        ShadowCamera sc_;
     public:
-        RealisticScene(PrismApp* app) : app_(app), obj_pipeline_(app), shadow_pipeline_(app), light_src_pipeline_(app), camera_(app->GetWindow().GetHandle(), app->GetInitializeParams().width, app->GetInitializeParams().height, 45),
+        RealisticScene(PrismApp* app) : app_(app), rp_(app->GetRenderContext()), shadow_rp_(app->GetRenderContext()), obj_pipeline_(app), shadow_pipeline_(app), light_src_pipeline_(app), camera_(app->GetWindow().GetHandle(), app->GetInitializeParams().width, app->GetInitializeParams().height, 45),
         input_(app_->GetWindow().GetHandle(), {
                 .forward_vk = 'W',
                 .backward_vk = 'S',
@@ -520,7 +525,9 @@ namespace Prism
             StructuredView<RealisticSceneInfo> scene_info(scene_info_);
             scene_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
             camera_.MakeViewAndProjection(scene_info[0].vp);
-            camera_.MakeViewAndProjection(scene_info[0].dotlight_positions[0], scene_info[0].light_vp);
+            sc_.SetSceneBounds(0, -1.5, 0, 15);
+            sc_.Update(camera_, scene_info[0].dotlight_positions[0]);
+            sc_.MakeLightVP(scene_info[0].light_vp);
             scene_info[0].camera_position = camera_.GetCameraPos4();
         }
 
@@ -528,7 +535,7 @@ namespace Prism
             if (drawcalls.contains(name)) {
                 LFATAL("Cannot create object drawcall {}: drawcall already exists");
             }
-            auto* drawcall = new ObjectDrawcall(app_, obj_pipeline_, shadow_pipeline_, scene_info_, name, vertices, indices, prop);
+            auto* drawcall = new ObjectDrawcall(app_, shadow_rp_, obj_pipeline_, shadow_pipeline_, scene_info_, name, vertices, indices, prop);
             drawcalls[name] = drawcall;
             return static_cast<ObjectDrawcall*>(drawcalls[name]);
         }
@@ -558,6 +565,14 @@ namespace Prism
 
         FreeCamera& GetCamera() {
             return camera_;
+        }
+
+        BackBufferRenderPass& GetRenderPass() {
+            return rp_;
+        }
+
+        ShadowRenderPass& GetShadowPass() {
+            return shadow_rp_;
         }
 
         ~RealisticScene() {

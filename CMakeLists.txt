@@ -69,6 +69,7 @@ add_executable(pipline-demo
         demo/pipeline_demo.cpp
         include/render/render_context.h
         include/render/render_target.h
+        include/render/render_pass.h
 )
 target_link_libraries(pipline-demo d3d12 dxgi d3dcompiler dxcompiler dxguid DirectXTex bcrypt turbojpeg freetype)
 add_dependencies(pipline-demo copy_dirs copy_binaries)

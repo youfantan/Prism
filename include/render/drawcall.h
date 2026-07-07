@@ -34,7 +34,7 @@ namespace Prism
         .MipLODBias = 0.0f,
         .MaxAnisotropy = 16,
         .ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL,
-        .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+        .BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK,
         .MinLOD = 0.0f,
         .MaxLOD = D3D12_FLOAT32_MAX,
         .ShaderRegister = REG,
@@ -140,7 +140,7 @@ namespace Prism
 
     class Drawcall {
     public:
-        virtual RecordDispatcher::GPUProcess CreateRenderProcess() = 0;
+        virtual RecordDispatcher::RecordProcess CreateRenderProcess() = 0;
         virtual ~Drawcall() = default;
     };
 }

@@ -200,8 +200,8 @@ namespace Prism
             strings_[app_->GetRenderContext().GetCurrentIndex()].emplace_back(str.size(), font->GetFontTex(), font->GetFontMeta());
         }
 
-        RecordDispatcher::GPUProcess CreateRenderProcess() {
-            RecordDispatcher::GPUProcess proc = {
+        RecordDispatcher::RecordProcess CreateRenderProcess() {
+            RecordDispatcher::RecordProcess proc = {
                 [&, layer = app_->GetRenderContext().GetCurrentIndex(), strings = strings_[app_->GetRenderContext().GetCurrentIndex()]](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                     sync_value_ = nfv;
                     text_mesh_.RenderSync(nfv);

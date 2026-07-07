@@ -12,7 +12,7 @@ namespace Prism
 
 class RecordDispatcher {
 public:
-    using GPUProcess = struct {
+    using RecordProcess = struct {
         std::function<void*(ComPtr<ID3D12GraphicsCommandList>, uint64_t)> record;
         std::function<void(void*)> sync;
     };
@@ -27,7 +27,7 @@ private:
         std::string worker_name;
         Fence* fence;
         std::vector<Recorder> recorders;
-        std::deque<std::vector<GPUProcess>> tasks;
+        std::deque<std::vector<RecordProcess>> tasks;
         ComPtr<ID3D12CommandQueue> queue;
         HANDLE mutex;
         HANDLE event;
@@ -115,7 +115,7 @@ public:
         }
     }
 
-    void PostRecordTask(std::vector<GPUProcess>&& task) {
+    void PostRecordTask(std::vector<RecordProcess>&& task) {
         WorkerContext* select_ctx = contexts[0];
         uint64_t min_proc_size = contexts[0]->tasks.size();
         for (auto& ctx : contexts) {

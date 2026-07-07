@@ -71,6 +71,13 @@ public:
             0, 2, 3
         };
 
+        auto [v_Sphere, i_Sphere] = GeometryGenerator::GenUVSphere(30);
+        std::vector<LightSrcDrawcall::Index> i_LightSrc = std::move(i_Sphere);
+        std::vector<LightSrcDrawcall::Vertex> v_LightSrc(v_Sphere.size());
+        for (size_t i = 0; i < v_Sphere.size(); ++i) {
+            v_LightSrc[i].Position = { v_Sphere[i].x, v_Sphere[i].y, v_Sphere[i].z };
+        }
+
         auto GenNormal = [](std::vector<ObjectDrawcall::Vertex>& v, std::vector<ObjectDrawcall::Index>& idx) {
             for (int i = 0; i < idx.size() / 3; ++i) {
                 uint32_t a = idx[i * 3 + 0];
@@ -86,19 +93,13 @@ public:
         GenNormal(v_Pyramid, i_Pyramid);
         GenNormal(v_Ground, i_Ground);
 
-
-        auto [v_Sphere, i_Sphere] = GeometryGenerator::GenUVSphere(30);
-        std::vector<LightSrcDrawcall::Index> i_LightSrc = std::move(i_Sphere);
-        std::vector<LightSrcDrawcall::Vertex> v_LightSrc(v_Sphere.size());
-        for (size_t i = 0; i < v_Sphere.size(); ++i) {
-            v_LightSrc[i].Position = { v_Sphere[i].x, v_Sphere[i].y, v_Sphere[i].z };
-        }
-
-        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, metal_tex);
-        scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
+        ObjectDrawcall::ObjectProperties pyramid_prop_a = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, metal_tex);
+        scene_.CreateObjectDrawcall("PyramidA", v_Pyramid, i_Pyramid, pyramid_prop_a);
+        ObjectDrawcall::ObjectProperties pyramid_prop_b = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, metal_tex);
+        scene_.CreateObjectDrawcall("PyramidB", v_Pyramid, i_Pyramid, pyramid_prop_b);
         ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, stone_tex);
         scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
-        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 0, 0.5, { 1.0f, 0.81f, 0.80f, 1.0f });
+        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 2, 1, { 1.0f, 0.81f, 0.80f, 1.0f });
         scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);
     }
 
@@ -106,19 +107,42 @@ public:
         while (window_.FetchMessage()) {}
         scene_.Update();
         auto* light_src_drawcall = scene_.GetDrawcall<LightSrcDrawcall>("LightSrc");
-        auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
+        auto* pyramid_drawcall_a = scene_.GetDrawcall<ObjectDrawcall>("PyramidA");
+        auto* pyramid_drawcall_b = scene_.GetDrawcall<ObjectDrawcall>("PyramidB");
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
-        pyramid_drawcall->ApplyProperties();
+        pyramid_drawcall_a->ApplyProperties();
+        pyramid_drawcall_b->ApplyProperties();
         ground_drawcall->ApplyProperties();
         ui_.DrawString("UbuntuMono", "Realistic Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. Visit https://github.com/youfantan/Prism to learn more", 30, 90, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
-        ctx_.Shadow( { pyramid_drawcall->CreateShadowProcess(), ground_drawcall->CreateShadowProcess() } );
-        ctx_.Render({ light_src_drawcall->CreateRenderProcess(), pyramid_drawcall->CreateRenderProcess(), ground_drawcall->CreateRenderProcess(), ui_.CreateRenderProcess() }, [&] {
-            perf_.DeltaMs();
+        auto& render_pass = scene_.GetRenderPass();
+        auto& shadow_pass = scene_.GetShadowPass();
+        RecordDispatcher::RecordProcess perf_sync = {
+            [&](auto list, auto nfv) {
+                return nullptr;
+            },
+            [&](void*) {
+                perf_.DeltaMs();
+            }
+        };
+        shadow_pass({ shadow_pass.GetInitProc(),
+            pyramid_drawcall_a->CreateShadowProcess(),
+            pyramid_drawcall_b->CreateShadowProcess(),
+            shadow_pass.GetSyncProc() });
+        render_pass({ render_pass.GetInitProc(),
+            light_src_drawcall->CreateRenderProcess(),
+            pyramid_drawcall_a->CreateRenderProcess(),
+            pyramid_drawcall_b->CreateRenderProcess(),
+            ground_drawcall->CreateRenderProcess(),
+            ui_.CreateRenderProcess(),
+            render_pass.GetSyncProc(),
+            perf_sync
         });
+        ctx_.Swap();
     }
+
     void OnKeyUp(WPARAM wparam) override {
 
     }
