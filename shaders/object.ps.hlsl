@@ -12,6 +12,7 @@ cbuffer Presets : register(b1) {
     uint tex_index;
     uint shadow_index;
     uint normal_index;
+    uint rough_index;
 }
 
 cbuffer Scene : register(b0) {
@@ -19,13 +20,12 @@ cbuffer Scene : register(b0) {
     row_major float4x4 light_vp;
     float4 camera_pos;
     uint dotlight_count;
-    float3 dotlight_pos[16];
-    float3 dotlight_color[16];
+    float3 dotlight_pos[4];
+    float3 dotlight_color[4];
 }
 
 SamplerState LinearSampler : register(s0);
 SamplerComparisonState CompSampler : register(s1);
-
 
 float4 main(Pixel p) : SV_Target {
     Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(tex_index)];

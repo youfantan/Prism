@@ -21,11 +21,24 @@ public:
         auto stone_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/stone.jpg").value();
         auto bricks_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks.jpg").value();
         auto bricks_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks_normal.jpg").value();
+        auto bricks_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/bricks_rough.jpg").value();
+        auto marble_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/marble.jpg").value();
+        auto marble_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/marble_normal.jpg").value();
+        auto marble_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/marble_rough.jpg").value();
+        auto oak_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/oak.jpg").value();
+        auto oak_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/oak_normal.jpg").value();
+        auto oak_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/oak_rough.jpg").value();
         ResourceHandle metal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Metal", metal_jpg);
         ResourceHandle stone_tex = res_mgr_.CreateTexture2DFromImage("Texture_Stone", stone_jpg);
         ResourceHandle bricks_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks", bricks_jpg);
         ResourceHandle bricks_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks_Normal", bricks_normal_jpg);
-
+        ResourceHandle bricks_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks_Roughness", bricks_rough_jpg);
+        ResourceHandle marble_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble", marble_jpg);
+        ResourceHandle marble_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble_Normal", marble_normal_jpg);
+        ResourceHandle marble_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble_Roughness", marble_rough_jpg);
+        ResourceHandle oak_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak", oak_jpg);
+        ResourceHandle oak_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak_Normal", oak_normal_jpg);
+        ResourceHandle oak_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak_Roughness", oak_rough_jpg);
         std::vector<ObjectDrawcall::Vertex> v_Pyramid = {
             // Bottom
             {{ -0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
@@ -64,6 +77,48 @@ public:
             13, 14, 15
         };
 
+        std::vector<ObjectDrawcall::Vertex> v_Cube = {
+            // Front face (+Z)
+            {{-0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}, { 0.0f,  0.0f,  1.0f}},  // 0
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, { 0.0f,  0.0f,  1.0f}},  // 1
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, { 0.0f,  0.0f,  1.0f}},  // 2
+            {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}, { 0.0f,  0.0f,  1.0f}},  // 3
+            // Back face (-Z)
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, { 0.0f,  0.0f, -1.0f}},  // 4
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}, { 0.0f,  0.0f, -1.0f}},  // 5
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}, { 0.0f,  0.0f, -1.0f}},  // 6
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, { 0.0f,  0.0f, -1.0f}},  // 7
+            // Right face (+X)
+            {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, { 1.0f,  0.0f,  0.0f}},  // 8
+            {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, { 1.0f,  0.0f,  0.0f}},  // 9
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, { 1.0f,  0.0f,  0.0f}},  // 10
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, { 1.0f,  0.0f,  0.0f}},  // 11
+            // Left face (-X)
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, {-1.0f,  0.0f,  0.0f}},  // 12
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, {-1.0f,  0.0f,  0.0f}},  // 13
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, {-1.0f,  0.0f,  0.0f}},  // 14
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, {-1.0f,  0.0f,  0.0f}},  // 15
+            // Top face (+Y)
+            {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}, { 0.0f,  1.0f,  0.0f}},  // 16
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, { 0.0f,  1.0f,  0.0f}},  // 17
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}, { 0.0f,  1.0f,  0.0f}},  // 18
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}, { 0.0f,  1.0f,  0.0f}},  // 19
+            // Bottom face (-Y)
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, { 0.0f, -1.0f,  0.0f}},  // 20
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}, { 0.0f, -1.0f,  0.0f}},  // 21
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}, { 0.0f, -1.0f,  0.0f}},  // 22
+            {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}, { 0.0f, -1.0f,  0.0f}},  // 23
+        };
+
+        std::vector<ObjectDrawcall::Index> i_Cube = {
+            0, 1, 2,  0, 2, 3,
+            4, 5, 6,  4, 6, 7,
+            8, 9,10,  8,10,11,
+           12,13,14, 12,14,15,
+           16,17,18, 16,18,19,
+           20,21,22, 20,22,23,
+        };
+
         std::vector<ObjectDrawcall::Vertex> v_Ground = {
             {{ -0.5f, 0.0f, 0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
             {{ 0.5f, 0.0f, 0.5f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
@@ -96,15 +151,16 @@ public:
             }
         };
         GenNormal(v_Pyramid, i_Pyramid);
+        GenNormal(v_Cube, i_Cube);
         GenNormal(v_Ground, i_Ground);
 
-        ObjectDrawcall::ObjectProperties pyramid_prop_a = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, 0, 0, 2, bricks_tex, bricks_normal_tex);
-        scene_.CreateObjectDrawcall("PyramidA", v_Pyramid, i_Pyramid, pyramid_prop_a);
-        ObjectDrawcall::ObjectProperties pyramid_prop_b = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, bricks_tex);
-        scene_.CreateObjectDrawcall("PyramidB", v_Pyramid, i_Pyramid, pyramid_prop_b);
-        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, stone_tex);
+        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, 0, 0, 2, marble_tex, marble_normal_tex, marble_rough_tex, nullptr);
+        scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
+        ObjectDrawcall::ObjectProperties cube_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(2, 1, -1, 1, oak_tex, oak_normal_tex, oak_rough_tex, nullptr);
+        scene_.CreateObjectDrawcall("Cube", v_Cube, i_Cube, cube_prop);
+        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, -3, 0, 20, bricks_tex, bricks_normal_tex, bricks_rough_tex, nullptr);
         scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
-        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 2, 1, { 1.0f, 0.81f, 0.80f, 1.0f });
+        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 2, 1, { 1.0f, 1.0f, 1.0f, 1.0f });
         scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);
     }
 
@@ -112,13 +168,13 @@ public:
         while (window_.FetchMessage()) {}
         scene_.Update();
         auto* light_src_drawcall = scene_.GetDrawcall<LightSrcDrawcall>("LightSrc");
-        auto* pyramid_drawcall_a = scene_.GetDrawcall<ObjectDrawcall>("PyramidA");
-        auto* pyramid_drawcall_b = scene_.GetDrawcall<ObjectDrawcall>("PyramidB");
+        auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
+        auto* cube_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Cube");
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
-        pyramid_drawcall_a->ApplyProperties();
-        pyramid_drawcall_b->ApplyProperties();
+        pyramid_drawcall->ApplyProperties();
+        cube_drawcall->ApplyProperties();
         ground_drawcall->ApplyProperties();
-        ui_.DrawString("UbuntuMono", "Realistic Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", "Realistic PBR Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. Visit https://github.com/youfantan/Prism to learn more", 30, 90, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
@@ -133,13 +189,13 @@ public:
             }
         };
         shadow_pass({ shadow_pass.GetInitProc(),
-            pyramid_drawcall_a->CreateShadowProcess(),
-            pyramid_drawcall_b->CreateShadowProcess(),
+            pyramid_drawcall->CreateShadowProcess(),
+            cube_drawcall->CreateShadowProcess(),
             shadow_pass.GetSyncProc() });
         render_pass({ render_pass.GetInitProc(),
             light_src_drawcall->CreateRenderProcess(),
-            pyramid_drawcall_a->CreateRenderProcess(),
-            pyramid_drawcall_b->CreateRenderProcess(),
+            pyramid_drawcall->CreateRenderProcess(),
+            cube_drawcall->CreateRenderProcess(),
             ground_drawcall->CreateRenderProcess(),
             ui_.CreateRenderProcess(),
             render_pass.GetSyncProc(),
@@ -190,7 +246,7 @@ int main() {
         .msaa_type = MSAAType::MSAA_4X,
         .rt_format = DXGI_FORMAT_R8G8B8A8_UNORM,
         .ds_format = DXGI_FORMAT_D32_FLOAT,
-        .rt_clear_color = {0.1f, 0.1f, 0.1f, 1.0f},
+        .rt_clear_color = {0.0f, 0.0f, 0.0f, 1.0f},
         .enable_vsync = true,
         .shaders_dir = "shaders",
         .textures_dir = "textures",

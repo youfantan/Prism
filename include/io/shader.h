@@ -114,13 +114,13 @@ public:
         if (!SUCCEEDED(r)) {
             ComPtr<IDxcBlobUtf8> err_blob;
             result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&err_blob), nullptr);
-            LFATAL("Cannot compile shader{}({}), because: {}", src.name, src.path, static_cast<const char*>(err_blob->GetBufferPointer()));
+            LFATAL("Cannot compile shader {}({}), because: {}", src.name, src.path, static_cast<const char*>(err_blob->GetBufferPointer()));
             exit(EXIT_FAILURE);
         }
         ComPtr<IDxcBlob> output;
         r = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&output), nullptr);
         if (!SUCCEEDED(r)) {
-            LFATAL("Cannot get the compile result of the shader{}({})", src.name, src.path);
+            LFATAL("Cannot get the compile result of the shader {}({})", src.name, src.path);
             exit(EXIT_FAILURE);
         }
         std::string out_binary(static_cast<const char*>(output->GetBufferPointer()), output->GetBufferSize());

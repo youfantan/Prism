@@ -13,12 +13,12 @@ struct Pixel
     float2 uv : TEXCOORD;
     float3 normal : NORMAL;
 };
-
 cbuffer Presets : register(b1) {
     row_major float4x4 world;
     uint tex_index;
     uint shadow_index;
     uint normal_index;
+    uint rough_index;
 }
 
 cbuffer Scene : register(b0) {
@@ -26,8 +26,8 @@ cbuffer Scene : register(b0) {
     row_major float4x4 light_vp;
     float4 camera_pos;
     uint dotlight_count;
-    float3 dotlight_pos[16];
-    float3 dotlight_color[16];
+    float3 dotlight_pos[4];
+    float3 dotlight_color[4];
 }
 
 Pixel main(Vertex v) {

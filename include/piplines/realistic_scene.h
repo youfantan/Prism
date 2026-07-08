@@ -15,8 +15,8 @@ namespace Prism
         XMFLOAT4 camera_position;
         uint32_t dotlight_count;
         float _padding0[3];
-        XMFLOAT4 dotlight_positions[16];
-        XMFLOAT4 dotlight_colors[16];
+        XMFLOAT4 dotlight_positions[4];
+        XMFLOAT4 dotlight_colors[4];
     };
 
     struct RenderProperties {
@@ -191,6 +191,7 @@ namespace Prism
             uint32_t tex_index;
             uint32_t shadow_index;
             uint32_t normal_index;
+            uint32_t rough_index;
         };
 
         struct ShadowInfo {
@@ -219,6 +220,8 @@ namespace Prism
             ResourceHandle texture;
             bool pbr_enable;
             ResourceHandle normal_tex;
+            ResourceHandle rough_tex;
+            ResourceHandle disp_tex;
 
             static ObjectProperties MakeObjectProp(float x, float y, float z, float size, ResourceHandle texture) {
                 return {{
@@ -233,7 +236,7 @@ namespace Prism
                     .rot_z = 0.0f,
                 }, texture, false, nullptr };
             }
-            static ObjectProperties MakePBRObjectProp(float x, float y, float z, float size, ResourceHandle texture, ResourceHandle normal_tex) {
+            static ObjectProperties MakePBRObjectProp(float x, float y, float z, float size, ResourceHandle texture, ResourceHandle normal_tex, ResourceHandle rough_tex, ResourceHandle disp_tex) {
                 return {{
                     .x = x,
                     .y = y,
@@ -244,7 +247,7 @@ namespace Prism
                     .rot_x = 0.0f,
                     .rot_y = 0.0f,
                     .rot_z = 0.0f,
-                }, texture, true, normal_tex };
+                }, texture, true, normal_tex, rough_tex, disp_tex };
             }
         };
 
@@ -285,6 +288,7 @@ namespace Prism
             object_info[0].shadow_index = shadow_rp_.GetFrameResource(app_->GetRenderContext().GetCurrentIndex()).shadow_map->GetResourceMeta().Tex2D.bind_index;
             if (properties_.pbr_enable) {
                 object_info[0].normal_index = properties_.normal_tex->GetResourceMeta().Tex2D.bind_index;
+                object_info[0].rough_index = properties_.rough_tex->GetResourceMeta().Tex2D.bind_index;
             }
             MakeWorldMatrix(properties_, object_info[0].world);
             StructuredView<ShadowInfo> shadow_info(shadow_info_);
