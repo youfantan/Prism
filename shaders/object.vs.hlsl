@@ -18,6 +18,7 @@ cbuffer Presets : register(b1) {
     row_major float4x4 world;
     uint tex_index;
     uint shadow_index;
+    uint normal_index;
 }
 
 cbuffer Scene : register(b0) {

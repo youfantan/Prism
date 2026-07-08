@@ -7,7 +7,6 @@
 #include <render/resource.h>
 #include <io/shader.h>
 #include <io/font.h>
-#include <transform/camera.h>
 #include <render/render_context.h>
 
 namespace Prism
@@ -65,6 +64,7 @@ namespace Prism
         RenderContext ctx_;
         ShaderLoader shader_loader_;
         MetronomeTimer mt_;
+        PipelineManager pl_mgr_;
     public:
         PrismApp(const dx_init_t& init, Device& device, DXAllocator* allocator)
         : init_(init), device_(device), allocator_(allocator), window_(nullptr, init.width, init.height, this),
@@ -100,6 +100,10 @@ namespace Prism
 
         ResourceManager& GetResourceManager() {
             return res_mgr_;
+        }
+
+        PipelineManager& GetPipelineManager() {
+            return pl_mgr_;
         }
 
         RenderContext& GetRenderContext() {

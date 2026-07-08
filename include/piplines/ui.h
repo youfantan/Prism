@@ -153,7 +153,6 @@ namespace Prism
             ResourceHandle font_meta;
         };
         PrismApp* app_;
-        TextPipeline text_pipeline_;
         Mesh<CharacterVertex, CharacterIndex> text_mesh_;
         ResourceHandle characters_;
         ResourceHandle ui_presets_;
@@ -162,8 +161,11 @@ namespace Prism
         FontLoader loader_;
         constexpr static size_t MAX_CHARACTERS = 1024 * 1024;
         uint64_t sync_value_;
+        TextPipeline* text_pipeline_;
     public:
-        UIFramework(PrismApp* app) : app_(app), text_pipeline_(app), text_mesh_("UI_Text", vertices, indices, app->GetResourceManager()), loader_(app->GetInitializeParams().assets_dir, app->GetResourceManager()) {
+        UIFramework(PrismApp* app) : app_(app), text_mesh_("UI_Text", vertices, indices, app->GetResourceManager()), loader_(app->GetInitializeParams().assets_dir, app->GetResourceManager()) {
+            app_->GetPipelineManager().CreatePipeline<TextPipeline>("UITextPipeline", app);
+            text_pipeline_ = app_->GetPipelineManager().GetPipeline<TextPipeline>("UITextPipeline");
             characters_ = app_->GetResourceManager().CreateLocalBuffer("UI_Text_CharactersInfo", sizeof(CharacterInfo), MAX_CHARACTERS, D3D12_RESOURCE_STATE_COMMON);
             characters_view_.Create(characters_);
             ui_presets_ = app_->GetResourceManager().CreateLocalBuffer<UIPresets>("UI_Presets", D3D12_RESOURCE_STATE_COMMON);
@@ -212,11 +214,11 @@ namespace Prism
                         str.font_tex->GetRenderWaitable().GetFenceValue() = nfv;
                     }
                     characters_->GetRenderWaitable().GetFenceValue() = nfv; // As for local buffer, only sync op is to avoid release when inuse.
-                    list->SetPipelineState(text_pipeline_.GetPSO().Get());
+                    list->SetPipelineState(text_pipeline_->GetPSO().Get());
                     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     ID3D12DescriptorHeap* heaps[1] = { app_->GetResourceManager().GetTextureHeap().GetD3D12Heap() };
                     list->SetDescriptorHeaps(1, heaps);
-                    list->SetGraphicsRootSignature(text_pipeline_.GetSignature());
+                    list->SetGraphicsRootSignature(text_pipeline_->GetSignature());
                     uint64_t instance_off = 0;
                     for (auto& string : strings) {
                         list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());

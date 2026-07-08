@@ -125,9 +125,7 @@ namespace Prism
         ComPtr<ID3D12PipelineState> pso_;
         RootSignature rs_;
     public:
-        Pipeline(ComPtr<ID3D12Device> device) : rs_(device) {
-
-        }
+        Pipeline(ComPtr<ID3D12Device> device) : rs_(device) {}
 
         ComPtr<ID3D12PipelineState> GetPSO() {
             return pso_;
@@ -136,6 +134,39 @@ namespace Prism
         ID3D12RootSignature* GetSignature() {
             return rs_.GetD3D12Signature();
         }
+    };
+
+    class PipelineManager {
+        std::unordered_map<std::string, Pipeline*> pipelines_;
+    public:
+        PipelineManager() {
+
+        }
+
+        template<typename T, typename... Args>
+        requires std::derived_from<T, Pipeline>
+        bool CreatePipeline(const std::string name, Args&&... args) {
+            if (pipelines_.contains(name)) {
+                LFATAL("Cannot create pipeline {}: pipeline already exists");
+                return false;
+            }
+            T* pipeline = new T(std::forward<Args>(args)...);
+            pipelines_[name] = static_cast<Pipeline*>(pipeline);
+            pipelines_[name]->GetPSO()->SetName(ConvertStringToWstring(name).c_str());
+            return true;
+        }
+
+        template<typename T>
+        requires std::derived_from<T, Pipeline>
+        T* GetPipeline(const std::string& name) {
+            if (!pipelines_.contains(name)) {
+                LFATAL("Cannot get pipeline {}: pipeline not exists");
+                return nullptr;
+            }
+            auto* pipeline = pipelines_[name];
+            return static_cast<T*>(pipeline);
+        }
+
     };
 
     class Drawcall {

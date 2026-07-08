@@ -29,8 +29,15 @@ SamplerComparisonState CompSampler : register(s1);
 
 float4 main(Pixel p) : SV_Target {
     Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(tex_index)];
+    Texture2D normal = ResourceDescriptorHeap[NonUniformResourceIndex(normal_index)];
     Texture2D shadow_map = ResourceDescriptorHeap[NonUniformResourceIndex(shadow_index)];
-    float3 N = normalize(p.normal);
+    float3 dx = ddx(p.world_position);
+    float3 dy = ddy(p.world_position);
+    float3 T = normalize(dx - dot(dx, p.normal) * p.normal);
+    float3 B = cross(p.normal, T);
+    float3x3 TBN = float3x3(T, B, p.normal);
+    float3 tnormal = normal.Sample(LinearSampler, p.uv).xyz * 2.0 - 1.0;
+    float3 N = normalize(mul(tnormal, TBN));
     float3 V = normalize(camera_pos.xyz - p.world_position);
     float3 tex_color = tex.Sample(LinearSampler, p.uv);
     float3 ndc = p.light_position.xyz / p.light_position.w;

@@ -15,6 +15,13 @@
       "entry": "main"
     },
     {
+      "name": "pbr_object",
+      "type": "ps",
+      "path": "pbr_object.ps.hlsl",
+      "profile": "ps_6_6",
+      "entry": "main"
+    },
+    {
       "name": "text",
       "type": "vs",
       "path": "text.vs.hlsl",

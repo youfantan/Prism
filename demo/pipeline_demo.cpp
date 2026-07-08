@@ -1,9 +1,10 @@
 #include <base.h>
 #include <render/framework.h>
 
-#include "piplines/realistic_style_pipeline.h"
-#include "piplines/realistic_style_pipeline.h"
-#include "piplines/ui_pipeline.h"
+#include "io/model.h"
+#include "piplines/realistic_scene.h"
+#include "piplines/realistic_scene.h"
+#include "piplines/ui.h"
 #include "transform/helper.h"
 
 using namespace Prism;
@@ -18,8 +19,12 @@ public:
         ImageLoader loader;
         auto metal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/metal.jpg").value();
         auto stone_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/stone.jpg").value();
+        auto bricks_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks.jpg").value();
+        auto bricks_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks_normal.jpg").value();
         ResourceHandle metal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Metal", metal_jpg);
         ResourceHandle stone_tex = res_mgr_.CreateTexture2DFromImage("Texture_Stone", stone_jpg);
+        ResourceHandle bricks_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks", bricks_jpg);
+        ResourceHandle bricks_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks_Normal", bricks_normal_jpg);
 
         std::vector<ObjectDrawcall::Vertex> v_Pyramid = {
             // Bottom
@@ -93,9 +98,9 @@ public:
         GenNormal(v_Pyramid, i_Pyramid);
         GenNormal(v_Ground, i_Ground);
 
-        ObjectDrawcall::ObjectProperties pyramid_prop_a = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, metal_tex);
+        ObjectDrawcall::ObjectProperties pyramid_prop_a = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, 0, 0, 2, bricks_tex, bricks_normal_tex);
         scene_.CreateObjectDrawcall("PyramidA", v_Pyramid, i_Pyramid, pyramid_prop_a);
-        ObjectDrawcall::ObjectProperties pyramid_prop_b = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, metal_tex);
+        ObjectDrawcall::ObjectProperties pyramid_prop_b = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, bricks_tex);
         scene_.CreateObjectDrawcall("PyramidB", v_Pyramid, i_Pyramid, pyramid_prop_b);
         ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, stone_tex);
         scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
@@ -172,7 +177,6 @@ int main() {
         .log_file_name = "logs.txt"
     };
     mlog_sth_init(mlog_init);
-
     dx_init_t dx_init = {
         .width = 1280,
         .height = 720,

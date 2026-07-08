@@ -8,7 +8,7 @@ include_directories(include)
 include_directories(thirdparty/include)
 
 # set UNICODE for Win32 API
-add_compile_definitions(-DUNICODE _CRT_SECURE_NO_WARNINGS)
+add_compile_definitions(-DUNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
 
 # copy ./shaders and ./assets to the build directory
 set(COPY_DIRS shaders assets textures)
@@ -59,17 +59,18 @@ add_executable(pipline-demo
         include/transform/camera.h
         src/transform/camera.cpp
         include/transform/helper.h
-        include/piplines/ui_pipeline.h
+        include/piplines/ui.h
         include/io/font.h
         include/io/image.h
         src/utils.cpp
         include/render/mesh.h
-        include/piplines/realistic_style_pipeline.h
+        include/piplines/realistic_scene.h
         src/render/framework.cpp
         demo/pipeline_demo.cpp
         include/render/render_context.h
-        include/render/render_target.h
         include/render/render_pass.h
+        include/io/model.h
+        src/pipelines/realistic_scene.cpp
 )
 target_link_libraries(pipline-demo d3d12 dxgi d3dcompiler dxcompiler dxguid DirectXTex bcrypt turbojpeg freetype)
 add_dependencies(pipline-demo copy_dirs copy_binaries)
