@@ -7,7 +7,9 @@
 #include <render/resource.h>
 #include <io/shader.h>
 #include <io/font.h>
+#include <io/texture.h>
 #include <render/render_context.h>
+
 
 namespace Prism
 {
@@ -63,6 +65,7 @@ namespace Prism
         ResourceManager res_mgr_;
         RenderContext ctx_;
         ShaderLoader shader_loader_;
+        TextureLoader tex_loader_;
         MetronomeTimer mt_;
         PipelineManager pl_mgr_;
     public:
@@ -71,7 +74,7 @@ namespace Prism
         render_dispatcher_("Render Dispatcher", device_, init_.render_threads_count, init.lists_per_render_thread),
         copy_dispatcher_("Copy Dispatcher", device_, init.copy_threads_count, init.lists_per_copy_thread),
         res_mgr_(device_.GetComPtr(), allocator_, render_dispatcher_, copy_dispatcher_, init_),
-        ctx_(init, window_.GetHandle(), device_, res_mgr_, render_dispatcher_), shader_loader_(init.shaders_dir), mt_(1000 / init.fps_limit, [&](MetronomeTimer& mt) { Loop(mt); }) {
+        ctx_(init, window_.GetHandle(), device_, res_mgr_, render_dispatcher_), shader_loader_(init.shaders_dir), tex_loader_(init.textures_dir, res_mgr_), mt_(1000 / init.fps_limit, [&](MetronomeTimer& mt) { Loop(mt); }) {
         }
 
         DXAllocator* GetAllocator() {

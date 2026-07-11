@@ -16,29 +16,6 @@ private:
     RealisticScene scene_;
 public:
     PipelineDemoApp(const dx_init_t& init, Device& device, DXAllocator* allocator) : PrismApp(init, device, allocator), ui_(this), scene_(this) {
-        ImageLoader loader;
-        auto metal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/metal.jpg").value();
-        auto stone_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/stone.jpg").value();
-        auto bricks_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks.jpg").value();
-        auto bricks_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/bricks_normal.jpg").value();
-        auto bricks_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/bricks_rough.jpg").value();
-        auto marble_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/marble.jpg").value();
-        auto marble_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/marble_normal.jpg").value();
-        auto marble_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/marble_rough.jpg").value();
-        auto oak_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/oak.jpg").value();
-        auto oak_normal_jpg = loader.LoadJPG<ImageFormatRGBA>("textures/oak_normal.jpg").value();
-        auto oak_rough_jpg = loader.LoadJPG<ImageFormatGray>("textures/oak_rough.jpg").value();
-        ResourceHandle metal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Metal", metal_jpg);
-        ResourceHandle stone_tex = res_mgr_.CreateTexture2DFromImage("Texture_Stone", stone_jpg);
-        ResourceHandle bricks_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks", bricks_jpg);
-        ResourceHandle bricks_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks_Normal", bricks_normal_jpg);
-        ResourceHandle bricks_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Bricks_Roughness", bricks_rough_jpg);
-        ResourceHandle marble_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble", marble_jpg);
-        ResourceHandle marble_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble_Normal", marble_normal_jpg);
-        ResourceHandle marble_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Marble_Roughness", marble_rough_jpg);
-        ResourceHandle oak_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak", oak_jpg);
-        ResourceHandle oak_normal_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak_Normal", oak_normal_jpg);
-        ResourceHandle oak_rough_tex = res_mgr_.CreateTexture2DFromImage("Texture_Oak_Roughness", oak_rough_jpg);
         std::vector<ObjectDrawcall::Vertex> v_Pyramid = {
             // Bottom
             {{ -0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
@@ -150,15 +127,19 @@ public:
                 memcpy(&v[c].Normal, &normal, sizeof(float) * 3);
             }
         };
+        auto* oak_tex = tex_loader_.Get("oak").value();
+        auto* marble_tex = tex_loader_.Get("marble").value();
+        auto* bricks_tex = tex_loader_.Get("bricks").value();
+
         GenNormal(v_Pyramid, i_Pyramid);
         GenNormal(v_Cube, i_Cube);
         GenNormal(v_Ground, i_Ground);
-
-        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, 0, 0, 2, marble_tex, marble_normal_tex, marble_rough_tex, nullptr);
+        scene_.GetAmbientLight() = { 0.0f, 0.0f, 0.0f, 1.0f };
+        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, marble_tex);
         scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
-        ObjectDrawcall::ObjectProperties cube_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(2, 1, -1, 1, oak_tex, oak_normal_tex, oak_rough_tex, nullptr);
+        ObjectDrawcall::ObjectProperties cube_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, oak_tex);
         scene_.CreateObjectDrawcall("Cube", v_Cube, i_Cube, cube_prop);
-        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakePBRObjectProp(0, -3, 0, 20, bricks_tex, bricks_normal_tex, bricks_rough_tex, nullptr);
+        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, bricks_tex);
         scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
         LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 2, 1, { 1.0f, 1.0f, 1.0f, 1.0f });
         scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);

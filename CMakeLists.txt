@@ -7,8 +7,10 @@ set(CMAKE_CXX_STANDARD 20)
 include_directories(include)
 include_directories(thirdparty/include)
 
-# set UNICODE for Win32 API
-add_compile_definitions(-DUNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+add_compile_definitions(UNICODE
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX
+)
 
 # copy ./shaders and ./assets to the build directory
 set(COPY_DIRS shaders assets textures)
@@ -71,6 +73,8 @@ add_executable(pipline-demo
         include/render/render_pass.h
         include/io/model.h
         src/pipelines/realistic_scene.cpp
+        include/io/texture.h
+        src/base.cpp
 )
 target_link_libraries(pipline-demo d3d12 dxgi d3dcompiler dxcompiler dxguid DirectXTex bcrypt turbojpeg freetype)
 add_dependencies(pipline-demo copy_dirs copy_binaries)

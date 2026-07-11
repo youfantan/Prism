@@ -75,7 +75,7 @@ public:
         ptr_ = static_cast<char *>(malloc(size_));
     }
     /* Construct Buffer with give pointer and size and set to Read Only mode */
-    UniqueByteBuffer(char* ptr, size_t size) : ptr_(ptr), size_(size), rw_(false) {}
+    UniqueByteBuffer(char* ptr, size_t size) : ptr_(ptr), size_(size), rw_(true) {}
     UniqueByteBuffer(UniqueByteBuffer&) = delete;
     UniqueByteBuffer(UniqueByteBuffer&& buf) noexcept : size_(buf.size_), ptr_(buf.ptr_), rw_(buf.rw_) {
         buf.size_ = 0;

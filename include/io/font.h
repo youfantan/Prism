@@ -41,7 +41,7 @@ private:
 
     Font(const std::string& name, const std::string& font_tex_path, const std::string& font_uv_path, ResourceManager& res_mgr) : res_mgr_(res_mgr) {
         LDEBUG("Loading font {}({}, {})", name, font_tex_path, font_uv_path);
-        auto tex_img = ImageLoader::LoadJPG<ImageFormatGray>(font_tex_path);
+        auto tex_img = ImageLoader::LoadJPG(font_tex_path);
         if (!tex_img.has_value()) {
             LFATAL("Cannot load texture of font tex {}", font_tex_path);
         }
@@ -137,7 +137,7 @@ class FontLoader {
         std::u32string chmap = ConvertStringToU32String(chmap_str);
         uint64_t cell_cols = GetMinSquare(chmap.size());
         uint64_t cell_rows = GetMinSquare(chmap.size());
-        auto bitmap = ImageLoader::CreateBlankImage<ImageFormatGray>(cell_cols * cell_size, cell_rows * cell_size);
+        auto bitmap = ImageLoader::CreateBlankImage(cell_cols * cell_size, cell_rows * cell_size, DXGI_FORMAT_R8_UNORM);
         std::stringstream atlas_output;
         atlas_output << chmap.size() << " " << atlas_size << std::endl;
         for (uint64_t i = 0; i < chmap.size(); ++i) {
@@ -151,10 +151,8 @@ class FontLoader {
             }
             LINFO("Generating character {}", static_cast<uint32_t>(chmap[i]));
             FT_Bitmap& glyph = face_->glyph->bitmap;
-            auto glyph_bitmap = ImageLoader::CreateImageFromPixels<ImageFormatGray>(glyph.width, glyph.rows, glyph.pitch, glyph.buffer);
             uint64_t start_x = cell_x * cell_size + (cell_size - glyph.width) / 2;
             uint64_t start_y = cell_y * cell_size + (cell_size - glyph.rows) / 2;
-            bitmap.CopyRegion(glyph_bitmap, start_x, start_y);
             CharacterMeta meta {};
             meta.ch = chmap[i];
             meta.width = glyph.width;
@@ -167,6 +165,9 @@ class FontLoader {
             meta.bearing_y = (float)face_->glyph->bitmap_top;
             meta.advance  = (float)(face_->glyph->advance.x >> 6);
             atlas_output << std::format("{} {} {} {} {} {} {} {} {} {}", static_cast<uint32_t>(meta.ch), meta.width, meta.height, meta.tex_u0, meta.tex_v0, meta.tex_u1, meta.tex_v1, meta.bearing_x, meta.bearing_y, meta.advance) << std::endl;
+            if (chmap_str[i] == ' ') continue;
+            auto glyph_bitmap = ImageLoader::CreateImageFromPixels(glyph.width, glyph.rows, glyph.pitch, glyph.buffer, DXGI_FORMAT_R8_UNORM);
+            bitmap.CopyRegion(glyph_bitmap, start_x, start_y);
         }
         ImageLoader::StoreJPG(tex_path, bitmap);
         WriteStringToFile(uv_path, atlas_output.str());

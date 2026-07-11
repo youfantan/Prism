@@ -460,10 +460,8 @@ public:
         return res;
     }
 
-    template<typename ImageFormat>
-    requires is_image_format<ImageFormat>
-    ResourceHandle CreateTexture2DFromImage(const std::string& name, Image<ImageFormat>& img) {
-        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, ImageFormat::DXGIFormat, D3D12_RESOURCE_STATE_COMMON);
+    ResourceHandle CreateTexture2DFromImage(const std::string& name, Image& img) {
+        ResourceHandle texture = CreateTexture2D(name, img.width, img.height, 1, img.dx_format, D3D12_RESOURCE_STATE_COMMON);
         auto tex_desc = texture->GetD3D12Resource()->GetDesc();
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
         uint32_t rows;
@@ -477,7 +475,7 @@ public:
         auto* dest = static_cast<uint8_t *>(mapping) + footprint.Offset;
         uint64_t dest_pitch = footprint.Footprint.RowPitch;
         for (int i = 0; i < rows; ++i) {
-            memcpy(dest + i * dest_pitch, &img.At(0, i), img.width * img.stride);
+            memcpy(dest + i * dest_pitch, img.At(0, i), img.width * img.stride);
         }
         upload->GetD3D12Resource()->Unmap(0, nullptr);
         Resource::CopyToTexture(copy_dispatcher_, upload, texture, footprint);

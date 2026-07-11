@@ -24,6 +24,7 @@ cbuffer Presets : register(b1) {
 cbuffer Scene : register(b0) {
     row_major float4x4 vp;
     row_major float4x4 light_vp;
+    float4 ambient_light;
     float4 camera_pos;
     uint dotlight_count;
     float3 dotlight_pos[4];

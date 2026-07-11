@@ -12,6 +12,7 @@ namespace Prism
     struct RealisticSceneInfo {
         XMFLOAT4X4 vp;
         XMFLOAT4X4 light_vp;
+        XMFLOAT4 ambient_light;
         XMFLOAT4 camera_position;
         uint32_t dotlight_count;
         float _padding0[3];
@@ -217,13 +218,9 @@ namespace Prism
         };
 
         struct ObjectProperties : RenderProperties {
-            ResourceHandle texture;
-            bool pbr_enable;
-            ResourceHandle normal_tex;
-            ResourceHandle rough_tex;
-            ResourceHandle disp_tex;
+            Texture* texture;
 
-            static ObjectProperties MakeObjectProp(float x, float y, float z, float size, ResourceHandle texture) {
+            static ObjectProperties MakeObjectProp(float x, float y, float z, float size, Texture* texture) {
                 return {{
                     .x = x,
                     .y = y,
@@ -234,20 +231,7 @@ namespace Prism
                     .rot_x = 0.0f,
                     .rot_y = 0.0f,
                     .rot_z = 0.0f,
-                }, texture, false, nullptr };
-            }
-            static ObjectProperties MakePBRObjectProp(float x, float y, float z, float size, ResourceHandle texture, ResourceHandle normal_tex, ResourceHandle rough_tex, ResourceHandle disp_tex) {
-                return {{
-                    .x = x,
-                    .y = y,
-                    .z = z,
-                    .scale_x = size,
-                    .scale_y = size,
-                    .scale_z = size,
-                    .rot_x = 0.0f,
-                    .rot_y = 0.0f,
-                    .rot_z = 0.0f,
-                }, texture, true, normal_tex, rough_tex, disp_tex };
+                }, texture };
             }
         };
 
@@ -268,7 +252,7 @@ namespace Prism
             shadow_pipeline_ = app_->GetPipelineManager().GetPipeline<ShadowPipeline>("ShadowPipeline");
             object_info_ = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
             shadow_info_ = app_->GetResourceManager().CreateLocalBuffer<ShadowInfo>("ShadowInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
-            if (prop.pbr_enable) {
+            if (properties_.texture->type == TextureType::PBR) {
                 pipeline_ = app_->GetPipelineManager().GetPipeline<PBRObjectPipeline>("PBRObjectPipeline");
             } else {
                 pipeline_ = app_->GetPipelineManager().GetPipeline<ObjectPipeline>("ObjectPipeline");
@@ -284,11 +268,11 @@ namespace Prism
         void ApplyProperties() {
             StructuredView<ObjectInfo> object_info(object_info_);
             object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
-            object_info[0].tex_index = properties_.texture->GetResourceMeta().Tex2D.bind_index;
+            object_info[0].tex_index = properties_.texture->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index;
             object_info[0].shadow_index = shadow_rp_.GetFrameResource(app_->GetRenderContext().GetCurrentIndex()).shadow_map->GetResourceMeta().Tex2D.bind_index;
-            if (properties_.pbr_enable) {
-                object_info[0].normal_index = properties_.normal_tex->GetResourceMeta().Tex2D.bind_index;
-                object_info[0].rough_index = properties_.rough_tex->GetResourceMeta().Tex2D.bind_index;
+            if (properties_.texture->type == TextureType::PBR) {
+                object_info[0].normal_index = properties_.texture->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index;
+                object_info[0].rough_index = properties_.texture->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index;
             }
             MakeWorldMatrix(properties_, object_info[0].world);
             StructuredView<ShadowInfo> shadow_info(shadow_info_);
@@ -317,8 +301,16 @@ namespace Prism
             return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
                 sync_value_ = nfv;
                 mesh_.RenderSync(nfv);
-                properties_.texture->GetCopyWaitable().GPUWait();
-                properties_.texture->GetRenderWaitable().GetFenceValue() = nfv;
+                properties_.texture->Resources.Image.tex->GetCopyWaitable().GPUWait();
+                properties_.texture->Resources.Image.tex->GetRenderWaitable().GetFenceValue() = nfv;
+                if (properties_.texture->type == TextureType::PBR) {
+                    properties_.texture->Resources.PBR.normal_tex->GetCopyWaitable().GPUWait();
+                    properties_.texture->Resources.PBR.normal_tex->GetRenderWaitable().GetFenceValue() = nfv;
+                    properties_.texture->Resources.PBR.rough_tex->GetCopyWaitable().GPUWait();
+                    properties_.texture->Resources.PBR.rough_tex->GetRenderWaitable().GetFenceValue() = nfv;
+                    properties_.texture->Resources.PBR.disp_tex->GetCopyWaitable().GPUWait();
+                    properties_.texture->Resources.PBR.disp_tex->GetRenderWaitable().GetFenceValue() = nfv;
+                }
                 object_info_->GetRenderWaitable().GetFenceValue() = nfv;
                 scene_info_->GetRenderWaitable().GetFenceValue() = nfv;
                 list->SetPipelineState(pipeline_->GetPSO().Get());
@@ -351,6 +343,7 @@ namespace Prism
         FreeCamera camera_;
         KMInput input_;
         ShadowCamera sc_;
+        XMFLOAT4 ambient_light_;
     public:
         RealisticScene(PrismApp* app) : app_(app), rp_(app->GetRenderContext()), shadow_rp_(app->GetRenderContext()), light_src_pipeline_(app), camera_(app->GetWindow().GetHandle(), app->GetInitializeParams().width, app->GetInitializeParams().height, 45),
         input_(app_->GetWindow().GetHandle(), {
@@ -379,7 +372,12 @@ namespace Prism
             sc_.SetSceneBounds(0, -1.5, 0, 15);
             sc_.Update(camera_, scene_info[0].dotlight_positions[0]);
             sc_.MakeLightVP(scene_info[0].light_vp);
+            scene_info[0].ambient_light = ambient_light_;
             scene_info[0].camera_position = camera_.GetCameraPos4();
+        }
+
+        XMFLOAT4& GetAmbientLight() {
+            return ambient_light_;
         }
 
         ObjectDrawcall* CreateObjectDrawcall(const std::string& name, std::vector<ObjectDrawcall::Vertex>& vertices, std::vector<ObjectDrawcall::Index>& indices, const ObjectDrawcall::ObjectProperties& prop) {

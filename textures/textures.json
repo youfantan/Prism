@@ -2,15 +2,108 @@
   "Textures": [
     {
       "name": "metal",
-      "path": "metal.jpg",
-      "type": "jpeg",
-      "format": "rgb"
+      "type": "img",
+      "from": "unknown",
+      "files": [
+        {
+          "path": "metal.jpg",
+          "type": "texture",
+          "format": "jpg"
+        }
+      ]
     },
     {
       "name": "stone",
-      "path": "stone.jpg",
-      "type": "jpeg",
-      "format": "rgb"
+      "type": "img",
+      "from": "unknown",
+      "files": [
+        {
+          "path": "stone.jpg",
+          "type": "texture",
+          "format": "jpg"
+        }
+      ]
+    },
+    {
+      "name": "bricks",
+      "type": "pbr",
+      "from": "https://polyhaven.com/a/church_bricks_03",
+      "files": [
+        {
+          "path": "bricks.jpg",
+          "type": "texture",
+          "format": "jpg"
+        },
+        {
+          "path": "bricks_normal.jpg",
+          "type": "normal_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "bricks_rough.jpg",
+          "type": "roughness_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "bricks_disp.png",
+          "type": "displacement_texture",
+          "format": "png"
+        }
+      ]
+    },
+    {
+      "name": "marble",
+      "type": "pbr",
+      "from": "https://polyhaven.com/a/marble_cliff_01",
+      "files": [
+        {
+          "path": "marble.jpg",
+          "type": "texture",
+          "format": "jpg"
+        },
+        {
+          "path": "marble_normal.jpg",
+          "type": "normal_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "marble_rough.jpg",
+          "type": "roughness_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "marble_disp.png",
+          "type": "displacement_texture",
+          "format": "png"
+        }
+      ]
+    },
+    {
+      "name": "oak",
+      "type": "pbr",
+      "from": "https://polyhaven.com/a/oak_veneer_01",
+      "files": [
+        {
+          "path": "oak.jpg",
+          "type": "texture",
+          "format": "jpg"
+        },
+        {
+          "path": "oak_normal.jpg",
+          "type": "normal_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "oak_rough.jpg",
+          "type": "roughness_texture",
+          "format": "jpg"
+        },
+        {
+          "path": "oak_disp.png",
+          "type": "displacement_texture",
+          "format": "png"
+        }
+      ]
     }
   ]
 }

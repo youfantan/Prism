@@ -18,6 +18,7 @@ cbuffer Presets : register(b1) {
 cbuffer Scene : register(b0) {
     row_major float4x4 vp;
     row_major float4x4 light_vp;
+    float4 ambient_light;
     float4 camera_pos;
     uint dotlight_count;
     float3 dotlight_pos[4];
@@ -90,6 +91,6 @@ float4 main(Pixel p) : SV_Target {
         float3 light = PBR_Light(p.world_position, camera_pos.xyz, dotlight_pos[i].xyz, N, dotlight_color[i], tex_color, rough, 0);
         result += light * shadow;
     }
-    float3 ambient = float3(0.0, 0.0, 0.0) * tex_color;
+    float3 ambient = ambient_light.rgb * tex_color;
     return float4(result + ambient, 1.0);
 }
