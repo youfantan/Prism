@@ -1,6 +1,13 @@
 #include <piplines/realistic_scene.h>
 
 Prism::LightSrcDrawcall::LightSrcPipeline::LightSrcPipeline(PrismApp* app) : Pipeline(app->GetDevice().GetComPtr()), app_(app) {
+    std::vector<D3D12_INPUT_ELEMENT_DESC> layout;
+    for (auto& l : VertexAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
+    for (auto& l : InstanceAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
     rs_
     .BindTextureHeap(app_->GetResourceManager().GetTextureHeap())
     .BindConstantBuffer(0, 0)
@@ -60,7 +67,7 @@ Prism::LightSrcDrawcall::LightSrcPipeline::LightSrcPipeline(PrismApp* app) : Pip
     pso_desc_.RTVFormats[0] = app_->GetInitializeParams().rt_format;
     pso_desc_.DSVFormat = app_->GetInitializeParams().ds_format;
     pso_desc_.NodeMask = 0;
-    pso_desc_.InputLayout = {LIGHT_SRC_LAYOUT, CountOf(LIGHT_SRC_LAYOUT)};
+    pso_desc_.InputLayout = {layout.data(), static_cast<uint32_t>(layout.size())};
     pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc_.SampleMask = UINT_MAX;
@@ -68,6 +75,13 @@ Prism::LightSrcDrawcall::LightSrcPipeline::LightSrcPipeline(PrismApp* app) : Pip
 }
 
 Prism::ObjectDrawcall::ObjectPipeline::ObjectPipeline(PrismApp* app) : Pipeline(app->GetDevice().GetComPtr()), app_(app) {
+    std::vector<D3D12_INPUT_ELEMENT_DESC> layout;
+    for (auto& l : VertexAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
+    for (auto& l : InstanceAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
     rs_
     .BindTextureHeap(app->GetResourceManager().GetTextureHeap())
     .BindConstantBuffer(0, 0)
@@ -122,7 +136,7 @@ Prism::ObjectDrawcall::ObjectPipeline::ObjectPipeline(PrismApp* app) : Pipeline(
     pso_desc_.RTVFormats[0] = app_->GetInitializeParams().rt_format;
     pso_desc_.DSVFormat = app_->GetInitializeParams().ds_format;
     pso_desc_.NodeMask = 0;
-    pso_desc_.InputLayout = {OBJECT_LAYOUT, CountOf(OBJECT_LAYOUT)};
+    pso_desc_.InputLayout = {layout.data(), static_cast<uint32_t>(layout.size())};
     pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc_.SampleMask = UINT_MAX;
@@ -130,6 +144,13 @@ Prism::ObjectDrawcall::ObjectPipeline::ObjectPipeline(PrismApp* app) : Pipeline(
 }
 
 Prism::ObjectDrawcall::PBRObjectPipeline::PBRObjectPipeline(PrismApp* app) : Pipeline(app->GetDevice().GetComPtr()), app_(app) {
+    std::vector<D3D12_INPUT_ELEMENT_DESC> layout;
+    for (auto& l : VertexAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
+    for (auto& l : InstanceAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
     rs_
     .BindTextureHeap(app->GetResourceManager().GetTextureHeap())
     .BindConstantBuffer(0, 0)
@@ -184,7 +205,7 @@ Prism::ObjectDrawcall::PBRObjectPipeline::PBRObjectPipeline(PrismApp* app) : Pip
     pso_desc_.RTVFormats[0] = app_->GetInitializeParams().rt_format;
     pso_desc_.DSVFormat = app_->GetInitializeParams().ds_format;
     pso_desc_.NodeMask = 0;
-    pso_desc_.InputLayout = {OBJECT_LAYOUT, CountOf(OBJECT_LAYOUT)};
+    pso_desc_.InputLayout = {layout.data(), static_cast<uint32_t>(layout.size())};
     pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc_.SampleMask = UINT_MAX;
@@ -193,6 +214,13 @@ Prism::ObjectDrawcall::PBRObjectPipeline::PBRObjectPipeline(PrismApp* app) : Pip
 }
 
 Prism::ObjectDrawcall::ShadowPipeline::ShadowPipeline(PrismApp* app) : Pipeline(app->GetDevice().GetComPtr()), app_(app) {
+    std::vector<D3D12_INPUT_ELEMENT_DESC> layout;
+    for (auto& l : VertexAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
+    for (auto& l : InstanceAttrs::MakeInputElements()) {
+        layout.push_back(l);
+    }
     rs_
     .BindConstantBuffer(0, 0)
     .BindConstantBuffer(1, 0)
@@ -247,7 +275,7 @@ Prism::ObjectDrawcall::ShadowPipeline::ShadowPipeline(PrismApp* app) : Pipeline(
     pso_desc_.NumRenderTargets = 0;
     pso_desc_.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc_.NodeMask = 0;
-    pso_desc_.InputLayout = {OBJECT_LAYOUT, CountOf(OBJECT_LAYOUT)};
+    pso_desc_.InputLayout = {layout.data(), static_cast<uint32_t>(layout.size())};
     pso_desc_.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     pso_desc_.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc_.SampleMask = UINT_MAX;

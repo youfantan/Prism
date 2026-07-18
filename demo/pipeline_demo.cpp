@@ -130,31 +130,58 @@ public:
         auto* oak_tex = tex_loader_.Get("oak").value();
         auto* marble_tex = tex_loader_.Get("marble").value();
         auto* bricks_tex = tex_loader_.Get("bricks").value();
-
+        auto MakeObjectInstance = [&](Texture* tex) -> ObjectDrawcall::Instance {
+            if (tex->type == TextureType::PBR) {
+                return {
+                    .ColorTexIndex = oak_tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
+                    .NormalTexIndex = oak_tex->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index,
+                    .RoughTexIndex = oak_tex->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index,
+                    .EmissiveTexIndex = UINT32_MAX,
+                    .DisplacementTexIndex = UINT32_MAX
+                };
+            } else {
+                return {
+                    .ColorTexIndex = oak_tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
+                    .NormalTexIndex = UINT32_MAX,
+                    .RoughTexIndex = UINT32_MAX,
+                    .EmissiveTexIndex = UINT32_MAX,
+                    .DisplacementTexIndex = UINT32_MAX
+                };
+            }
+        };
         GenNormal(v_Pyramid, i_Pyramid);
         GenNormal(v_Cube, i_Cube);
         GenNormal(v_Ground, i_Ground);
+
+        using ObjectMesh = Mesh<ObjectDrawcall::VertexAttrs, ObjectDrawcall::Index, ObjectDrawcall::InstanceAttrs>;
+        using LightMesh = Mesh<LightSrcDrawcall::VertexAttrs, LightSrcDrawcall::Index, LightSrcDrawcall::InstanceAttrs>;
+        mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("PyramidMesh", v_Pyramid, i_Pyramid, std::vector{ MakeObjectInstance(marble_tex) }, res_mgr_));
+        mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("GroundMesh", v_Ground, i_Ground, std::vector{ MakeObjectInstance(bricks_tex) }, res_mgr_));
+        mesh_mgr_.CreateMesh(LightMesh::CreateMeshFromStructuredData("DotlightMesh", v_LightSrc, i_LightSrc, res_mgr_));
         scene_.GetAmbientLight() = { 0.0f, 0.0f, 0.0f, 1.0f };
-        ObjectDrawcall::ObjectProperties pyramid_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, 0, 0, 2, marble_tex);
-        scene_.CreateObjectDrawcall("Pyramid", v_Pyramid, i_Pyramid, pyramid_prop);
-        ObjectDrawcall::ObjectProperties cube_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(2, 1, -1, 1, oak_tex);
-        scene_.CreateObjectDrawcall("Cube", v_Cube, i_Cube, cube_prop);
-        ObjectDrawcall::ObjectProperties ground_prop = ObjectDrawcall::ObjectProperties::MakeObjectProp(0, -3, 0, 20, bricks_tex);
-        scene_.CreateObjectDrawcall("Ground", v_Ground, i_Ground, ground_prop);
-        LightSrcDrawcall::LightSrcProperties light_src_prop = LightSrcDrawcall::LightSrcProperties::MakeLightSrcProp(5, 3, 2, 1, { 1.0f, 1.0f, 1.0f, 1.0f });
-        scene_.CreateLightSrcDrawcall("LightSrc", v_LightSrc, i_LightSrc, light_src_prop);
+        scene_.CreateObjectDrawcall("Pyramid", mesh_mgr_.GetMesh("PyramidMesh").value(), true);
+        scene_.CreateObjectDrawcall("Ground", mesh_mgr_.GetMesh("GroundMesh").value(), true);
+        scene_.CreateLightSrcDrawcall("Dotlight", mesh_mgr_.GetMesh("DotlightMesh").value());
+        scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("Teacup"));
     }
 
     void Loop(MetronomeTimer& mt) override {
         while (window_.FetchMessage()) {}
         scene_.Update();
-        auto* light_src_drawcall = scene_.GetDrawcall<LightSrcDrawcall>("LightSrc");
+        auto* light_src_drawcall = scene_.GetDrawcall<LightSrcDrawcall>("Dotlight");
         auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
-        auto* cube_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Cube");
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
+        auto* teacup_drawcall = scene_.GetDrawcall<ModelDrawcall>("Teacup");
+        pyramid_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
+        ground_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
+        teacup_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(-2.0f, 0.0f, -2.0f), ScalingTransform(3.0f));
+        light_src_drawcall->GetLightInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
+        light_src_drawcall->GetLightInfo().position = {2.0f, 0.0f, -2.0f, 0.0f};
+        light_src_drawcall->GetLightInfo().color = {1.0f, 1.0f, 1.0f, 0.0f};
         pyramid_drawcall->ApplyProperties();
-        cube_drawcall->ApplyProperties();
         ground_drawcall->ApplyProperties();
+        light_src_drawcall->ApplyProperties();
+        teacup_drawcall->ApplyProperties();
         ui_.DrawString("UbuntuMono", "Realistic PBR Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
@@ -171,12 +198,12 @@ public:
         };
         shadow_pass({ shadow_pass.GetInitProc(),
             pyramid_drawcall->CreateShadowProcess(),
-            cube_drawcall->CreateShadowProcess(),
+            teacup_drawcall->CreateShadowProcess(),
             shadow_pass.GetSyncProc() });
         render_pass({ render_pass.GetInitProc(),
             light_src_drawcall->CreateRenderProcess(),
             pyramid_drawcall->CreateRenderProcess(),
-            cube_drawcall->CreateRenderProcess(),
+            teacup_drawcall->CreateRenderProcess(),
             ground_drawcall->CreateRenderProcess(),
             ui_.CreateRenderProcess(),
             render_pass.GetSyncProc(),

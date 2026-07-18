@@ -12,10 +12,13 @@ struct Pixel
 
 cbuffer Scene : register(b0) {
     row_major float4x4 vp;
+    row_major float4x4 light_vp;
+    float4 ambient_light;
     float4 camera_pos;
     uint dotlight_count;
-    float3 dotlight_pos[16];
-    float3 dotlight_color[16];
+    float4 dotlight_pos[4];
+    float4 dotlight_color[4];
+    uint4 shadow_index;
 }
 
 cbuffer Light : register(b1) {

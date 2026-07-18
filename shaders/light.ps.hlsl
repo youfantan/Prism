@@ -7,6 +7,7 @@ struct Pixel
 cbuffer Light : register(b1) {
     row_major float4x4 world;
     float4 color;
+    float4 position;
 }
 
 float4 main(Pixel p) : SV_Target {

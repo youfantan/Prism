@@ -10,6 +10,8 @@
 #include <io/texture.h>
 #include <render/render_context.h>
 
+#include "io/model.h"
+
 
 namespace Prism
 {
@@ -68,13 +70,16 @@ namespace Prism
         TextureLoader tex_loader_;
         MetronomeTimer mt_;
         PipelineManager pl_mgr_;
+        MeshManager mesh_mgr_;
+        ModelLoader model_loader_;
     public:
         PrismApp(const dx_init_t& init, Device& device, DXAllocator* allocator)
         : init_(init), device_(device), allocator_(allocator), window_(nullptr, init.width, init.height, this),
         render_dispatcher_("Render Dispatcher", device_, init_.render_threads_count, init.lists_per_render_thread),
         copy_dispatcher_("Copy Dispatcher", device_, init.copy_threads_count, init.lists_per_copy_thread),
         res_mgr_(device_.GetComPtr(), allocator_, render_dispatcher_, copy_dispatcher_, init_),
-        ctx_(init, window_.GetHandle(), device_, res_mgr_, render_dispatcher_), shader_loader_(init.shaders_dir), tex_loader_(init.textures_dir, res_mgr_), mt_(1000 / init.fps_limit, [&](MetronomeTimer& mt) { Loop(mt); }) {
+        ctx_(init, window_.GetHandle(), device_, res_mgr_, render_dispatcher_), shader_loader_(init.shaders_dir),
+        tex_loader_(init.textures_dir, res_mgr_), model_loader_(init.assets_dir, res_mgr_, tex_loader_, mesh_mgr_), mt_(1000 / init.fps_limit, [&](MetronomeTimer& mt) { Loop(mt); }) {
         }
 
         DXAllocator* GetAllocator() {
@@ -115,6 +120,10 @@ namespace Prism
 
         ShaderLoader& GetShaderLoader() {
             return shader_loader_;
+        }
+
+        ModelLoader& GetGLTFModelLoader() {
+            return model_loader_;
         }
 
         void RunLoop() {

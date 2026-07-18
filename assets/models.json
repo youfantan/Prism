@@ -1,0 +1,9 @@
+{
+  "models": [
+    {
+      "name": "Teacup",
+      "path": "Teacup.glb",
+      "type": "glTF-Binary"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ struct Vertex
     float3 position : POSITION;
     float2 uv : TEXCOORD;
     float3 normal : NORMAL;
+    uint4 tex_idx : TEXIDX;
 };
 
 struct Pixel
@@ -12,13 +13,12 @@ struct Pixel
     float3 world_position : WPOS;
     float2 uv : TEXCOORD;
     float3 normal : NORMAL;
+    uint tex_idx : TEXIDX;
+    uint normal_tex_idx : NTEXIDX;
+    uint rough_tex_idx : RTEXIDX;
 };
 cbuffer Presets : register(b1) {
     row_major float4x4 world;
-    uint tex_index;
-    uint shadow_index;
-    uint normal_index;
-    uint rough_index;
 }
 
 cbuffer Scene : register(b0) {
@@ -27,8 +27,9 @@ cbuffer Scene : register(b0) {
     float4 ambient_light;
     float4 camera_pos;
     uint dotlight_count;
-    float3 dotlight_pos[4];
-    float3 dotlight_color[4];
+    float4 dotlight_pos[4];
+    float4 dotlight_color[4];
+    uint4 shadow_index;
 }
 
 Pixel main(Vertex v) {
@@ -40,5 +41,8 @@ Pixel main(Vertex v) {
     p.light_position = mul(float4(v.position, 1.0), light_wvp);
     p.normal = mul(v.normal, transpose((float3x3)world));
     p.uv = v.uv;
+    p.tex_idx = v.tex_idx[0];
+    p.normal_tex_idx = v.tex_idx[1];
+    p.rough_tex_idx = v.tex_idx[2];
     return p;
 }

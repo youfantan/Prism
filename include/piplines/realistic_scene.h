@@ -18,33 +18,12 @@ namespace Prism
         float _padding0[3];
         XMFLOAT4 dotlight_positions[4];
         XMFLOAT4 dotlight_colors[4];
+        uint32_t shadow_maps[4];
     };
-
-    struct RenderProperties {
-        float x;
-        float y;
-        float z;
-        float scale_x;
-        float scale_y;
-        float scale_z;
-        float rot_x;
-        float rot_y;
-        float rot_z;
-    };
-
-    template<typename Properties>
-    requires std::derived_from<Properties, RenderProperties>
-    void MakeWorldMatrix(const Properties& prop, XMFLOAT4X4& dest) {
-        XMMATRIX S = XMMatrixScaling(prop.scale_x, prop.scale_y, prop.scale_z);
-        XMMATRIX R = XMMatrixRotationX(prop.rot_x) * XMMatrixRotationY(prop.rot_y) * XMMatrixRotationZ(prop.rot_z);
-        XMMATRIX T = XMMatrixTranslation(prop.x, prop.y, prop.z);
-        XMMATRIX world = S * R* T;
-        XMStoreFloat4x4(&dest, world);
-    }
 
     class LightSrcDrawcall : public Drawcall {
     public:
-        struct Vertex {
+        using Vertex = struct {
             struct {
                 float X;
                 float Y;
@@ -55,36 +34,14 @@ namespace Prism
                 float V;
             } Tex;
         };
-
         using Index = uint32_t;
-
-        constexpr static D3D12_INPUT_ELEMENT_DESC LIGHT_SRC_LAYOUT[2] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
+        using VertexAttrs = InputAttrs<PositionAttr<0>, TexCoord0Attr<0>>;
+        using InstanceAttrs = InputAttrs<>;
 
         struct LightInfo {
             XMFLOAT4X4 world;
             XMFLOAT4 color;
-        };
-
-        struct LightSrcProperties : RenderProperties {
-            XMFLOAT4 color;
-
-            static LightSrcProperties MakeLightSrcProp(float x, float y, float z, float size, XMFLOAT4 color) {
-                return {
-                    {
-                        .x = x,
-                        .y = y,
-                        .z = z,
-                        .scale_x = size,
-                        .scale_y = size,
-                        .scale_z = size,
-                        .rot_x = 0.0f,
-                        .rot_y = 0.0f,
-                        .rot_z = 0.0f,
-                    }, color};
-            }
+            XMFLOAT4 position;
         };
 
         class LightSrcPipeline : public Pipeline {
@@ -96,54 +53,54 @@ namespace Prism
     private:
         PrismApp* app_;
         LightSrcPipeline* pipeline_;
-        Mesh<Vertex, Index> mesh_;
-        ResourceHandle light_info_;
+        CompactMesh* mesh_;
+        ResourceHandle light_info_buffer_;
         ResourceHandle scene_info_;
-        LightSrcProperties properties_;
         uint16_t bind_to_index_;
+        LightInfo light_info_ {};
 
     public:
-        LightSrcDrawcall(PrismApp* app, ResourceHandle scene_info, const std::string& name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const LightSrcProperties& prop, uint16_t bind_to) : app_(app), scene_info_(scene_info), mesh_(name, vertices, indices, app_->GetResourceManager()), properties_(prop), bind_to_index_(bind_to) {
+        LightSrcDrawcall(PrismApp* app, ResourceHandle scene, const std::string& name, CompactMesh* mesh, uint16_t bind_to) : app_(app), scene_info_(scene), mesh_(mesh), bind_to_index_(bind_to) {
             pipeline_ = app_->GetPipelineManager().GetPipeline<LightSrcPipeline>("LightSrcPipeline");
-            light_info_ = app_->GetResourceManager().CreateLocalBuffer<LightInfo>("LightInfo_" + name, D3D12_RESOURCE_STATE_COMMON);
-            StructuredView<LightInfo> light_info(light_info_);
-            StructuredView<RealisticSceneInfo> sc_info(scene_info_);
+            light_info_buffer_ = app_->GetResourceManager().CreateLocalBuffer<LightInfo>("LightInfo_" + name, D3D12_RESOURCE_STATE_COMMON);
+            StructuredView<LightInfo> light_info(light_info_buffer_);
+            StructuredView<RealisticSceneInfo> scene_info(scene_info_);
             for (size_t i = 0; i < app_->GetInitializeParams().buffer_count; ++i) {
                 light_info.SelectLayer(i);
-                light_info[0].color = properties_.color;
-                MakeWorldMatrix(properties_, light_info[0].world);
-                sc_info.SelectLayer(i);
-                sc_info[0].dotlight_positions[bind_to_index_] = { properties_.x, properties_.y, properties_.z, 0.0f };
-                sc_info[0].dotlight_colors[bind_to_index_] = properties_.color;
+                light_info[0].color = light_info_.color;
+                light_info[0].world = light_info_.world;
+                scene_info.SelectLayer(i);
+                scene_info[0].dotlight_positions[bind_to_index_] = light_info_.position;
+                scene_info[0].dotlight_colors[bind_to_index_] = light_info_.color;
             }
             for (size_t i = 0; i < app_->GetInitializeParams().buffer_count; ++i) {
-                sc_info.SelectLayer(i);
-                sc_info[0].dotlight_count++;
+                scene_info.SelectLayer(i);
+                scene_info[0].dotlight_count++;
             }
         }
 
         LightSrcDrawcall(const LightSrcDrawcall&) = delete;
         LightSrcDrawcall(LightSrcDrawcall&&) = delete;
 
-        LightSrcProperties& GetProperties() {
-            return properties_;
+        LightInfo& GetLightInfo() {
+            return light_info_;
         }
 
         void ApplyProperties() {
-            StructuredView<LightInfo> light_info(light_info_);
+            StructuredView<LightInfo> light_info(light_info_buffer_);
             light_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
-            light_info[0].color = properties_.color;
-            MakeWorldMatrix(properties_, light_info[0].world);
+            light_info[0].color = light_info_.color;
+            light_info[0].world = light_info_.world;
             StructuredView<RealisticSceneInfo> scene_info(scene_info_);
             scene_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
-            scene_info[0].dotlight_positions[bind_to_index_] = { properties_.x, properties_.y, properties_.z, 0.0f };
-            scene_info[0].dotlight_colors[bind_to_index_] = properties_.color;
+            scene_info[0].dotlight_positions[bind_to_index_] = light_info_.position;
+            scene_info[0].dotlight_colors[bind_to_index_] = light_info_.color;
         }
 
         RecordDispatcher::RecordProcess CreateRenderProcess() override {
             return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                mesh_.RenderSync(nfv);
-                light_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                mesh_->RenderSync(nfv);
+                light_info_buffer_->GetRenderWaitable().GetFenceValue() = nfv;
                 list->SetPipelineState(pipeline_->GetPSO().Get());
                 list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 ID3D12DescriptorHeap* heaps[] = { app_->GetResourceManager().GetTextureHeap().GetD3D12Heap() };
@@ -151,10 +108,8 @@ namespace Prism
                 list->SetGraphicsRootSignature(pipeline_->GetSignature());
                 list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());
                 list->SetGraphicsRootConstantBufferView(1, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                list->SetGraphicsRootConstantBufferView(2, light_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                list->IASetVertexBuffers(0, 1, &mesh_.GetVertexBufferView());
-                list->IASetIndexBuffer(&mesh_.GetIndexBufferView());
-                list->DrawIndexedInstanced(mesh_.GetIndexBuffer()->GetResourceMeta().Buffer.element_count, 1, 0, 0, 0);
+                list->SetGraphicsRootConstantBufferView(2, light_info_buffer_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                mesh_->DrawMesh(list);
                 return nullptr;
             }, [&](void* ptr) {}};
         }
@@ -162,7 +117,8 @@ namespace Prism
 
     class ObjectDrawcall : public Drawcall {
     public:
-        struct Vertex {
+
+        using Vertex = struct {
             struct {
                 float X;
                 float Y;
@@ -178,24 +134,22 @@ namespace Prism
                 float Z;
             } Normal;
         };
-
         using Index = uint32_t;
-
-        constexpr static D3D12_INPUT_ELEMENT_DESC OBJECT_LAYOUT[3] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        using Instance = struct {
+            uint32_t ColorTexIndex;
+            uint32_t NormalTexIndex;
+            uint32_t RoughTexIndex;
+            uint32_t EmissiveTexIndex;
+            uint32_t DisplacementTexIndex;
+            uint32_t Reserved0;
+            uint32_t Reserved1;
+            uint32_t Reserved2;
         };
+
+        using VertexAttrs = InputAttrs<PositionAttr<0>, TexCoord0Attr<0>, NormalAttr<0>>;
+        using InstanceAttrs = InputAttrs<TextureIndexAttr<1>>;
 
         struct ObjectInfo {
-            XMFLOAT4X4 world;
-            uint32_t tex_index;
-            uint32_t shadow_index;
-            uint32_t normal_index;
-            uint32_t rough_index;
-        };
-
-        struct ShadowInfo {
             XMFLOAT4X4 world;
         };
 
@@ -217,42 +171,21 @@ namespace Prism
             explicit ShadowPipeline(PrismApp* app);
         };
 
-        struct ObjectProperties : RenderProperties {
-            Texture* texture;
-
-            static ObjectProperties MakeObjectProp(float x, float y, float z, float size, Texture* texture) {
-                return {{
-                    .x = x,
-                    .y = y,
-                    .z = z,
-                    .scale_x = size,
-                    .scale_y = size,
-                    .scale_z = size,
-                    .rot_x = 0.0f,
-                    .rot_y = 0.0f,
-                    .rot_z = 0.0f,
-                }, texture };
-            }
-        };
-
     private:
         PrismApp* app_;
         ShadowRenderPass& shadow_rp_;
         Pipeline* pipeline_;
         ShadowPipeline* shadow_pipeline_;
         ResourceHandle scene_info_;
-        Mesh<Vertex, Index> mesh_;
-        ResourceHandle object_info_;
-        ResourceHandle shadow_info_;
-        ObjectProperties properties_;
-        uint64_t sync_value_;
+        CompactMesh* mesh_;
+        ResourceHandle object_info_buffer_;
+        ObjectInfo object_info_ {};
 
     public:
-        ObjectDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ResourceHandle scene_info, const std::string& object_name, std::vector<Vertex>& vertices, std::vector<Index>& indices, const ObjectProperties& prop) : app_(app), shadow_rp_(shadow_rp), scene_info_(scene_info), mesh_(object_name, vertices, indices, app->GetResourceManager()), properties_(prop) {
+        ObjectDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ResourceHandle scene_info, const std::string& object_name, CompactMesh* mesh, bool use_pbr) : app_(app), shadow_rp_(shadow_rp), scene_info_(scene_info), mesh_(mesh) {
             shadow_pipeline_ = app_->GetPipelineManager().GetPipeline<ShadowPipeline>("ShadowPipeline");
-            object_info_ = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
-            shadow_info_ = app_->GetResourceManager().CreateLocalBuffer<ShadowInfo>("ShadowInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
-            if (properties_.texture->type == TextureType::PBR) {
+            object_info_buffer_ = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
+            if (use_pbr) {
                 pipeline_ = app_->GetPipelineManager().GetPipeline<PBRObjectPipeline>("PBRObjectPipeline");
             } else {
                 pipeline_ = app_->GetPipelineManager().GetPipeline<ObjectPipeline>("ObjectPipeline");
@@ -261,37 +194,26 @@ namespace Prism
         ObjectDrawcall(const ObjectDrawcall&) = delete;
         ObjectDrawcall(ObjectDrawcall&&) = delete;
 
-        ObjectProperties& GetProperties() {
-            return properties_;
+        void ApplyProperties() {
+            StructuredView<ObjectInfo> object_info(object_info_buffer_);
+            object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            object_info[0].world = object_info_.world;
         }
 
-        void ApplyProperties() {
-            StructuredView<ObjectInfo> object_info(object_info_);
-            object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
-            object_info[0].tex_index = properties_.texture->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index;
-            object_info[0].shadow_index = shadow_rp_.GetFrameResource(app_->GetRenderContext().GetCurrentIndex()).shadow_map->GetResourceMeta().Tex2D.bind_index;
-            if (properties_.texture->type == TextureType::PBR) {
-                object_info[0].normal_index = properties_.texture->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index;
-                object_info[0].rough_index = properties_.texture->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index;
-            }
-            MakeWorldMatrix(properties_, object_info[0].world);
-            StructuredView<ShadowInfo> shadow_info(shadow_info_);
-            shadow_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
-            MakeWorldMatrix(properties_, shadow_info[0].world);
+        ObjectInfo& GetObjectInfo() {
+            return object_info_;
         }
 
         RecordDispatcher::RecordProcess CreateShadowProcess() {
             return {
                 [&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                    shadow_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                    object_info_buffer_->GetRenderWaitable().GetFenceValue() = nfv;
                     list->SetPipelineState(shadow_pipeline_->GetPSO().Get());
                     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     list->SetGraphicsRootSignature(shadow_pipeline_->GetSignature());
                     list->SetGraphicsRootConstantBufferView(0, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                    list->SetGraphicsRootConstantBufferView(1, shadow_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                    list->IASetVertexBuffers(0, 1, &mesh_.GetVertexBufferView());
-                    list->IASetIndexBuffer(&mesh_.GetIndexBufferView());
-                    list->DrawIndexedInstanced(mesh_.GetIndexBuffer()->GetResourceMeta().Buffer.element_count, 1, 0, 0, 0);
+                    list->SetGraphicsRootConstantBufferView(1, object_info_buffer_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                    mesh_->DrawMesh(list);
                     return nullptr;
                 }
             };
@@ -299,19 +221,8 @@ namespace Prism
 
         RecordDispatcher::RecordProcess CreateRenderProcess() override {
             return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                sync_value_ = nfv;
-                mesh_.RenderSync(nfv);
-                properties_.texture->Resources.Image.tex->GetCopyWaitable().GPUWait();
-                properties_.texture->Resources.Image.tex->GetRenderWaitable().GetFenceValue() = nfv;
-                if (properties_.texture->type == TextureType::PBR) {
-                    properties_.texture->Resources.PBR.normal_tex->GetCopyWaitable().GPUWait();
-                    properties_.texture->Resources.PBR.normal_tex->GetRenderWaitable().GetFenceValue() = nfv;
-                    properties_.texture->Resources.PBR.rough_tex->GetCopyWaitable().GPUWait();
-                    properties_.texture->Resources.PBR.rough_tex->GetRenderWaitable().GetFenceValue() = nfv;
-                    properties_.texture->Resources.PBR.disp_tex->GetCopyWaitable().GPUWait();
-                    properties_.texture->Resources.PBR.disp_tex->GetRenderWaitable().GetFenceValue() = nfv;
-                }
-                object_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                mesh_->RenderSync(nfv);
+                object_info_buffer_->GetRenderWaitable().GetFenceValue() = nfv;
                 scene_info_->GetRenderWaitable().GetFenceValue() = nfv;
                 list->SetPipelineState(pipeline_->GetPSO().Get());
                 list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -320,16 +231,114 @@ namespace Prism
                 list->SetGraphicsRootSignature(pipeline_->GetSignature());
                 list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());
                 list->SetGraphicsRootConstantBufferView(1, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                list->SetGraphicsRootConstantBufferView(2, object_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
-                list->IASetVertexBuffers(0, 1, &mesh_.GetVertexBufferView());
-                list->IASetIndexBuffer(&mesh_.GetIndexBufferView());
-                list->DrawIndexedInstanced(mesh_.GetIndexBuffer()->GetResourceMeta().Buffer.element_count, 1, 0, 0, 0);
+                list->SetGraphicsRootConstantBufferView(2, object_info_buffer_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                mesh_->DrawMesh(list);
                 return nullptr;
             }};
         }
 
         ~ObjectDrawcall() override {
-            app_->GetResourceManager().MarkAsExpired(object_info_);
+            app_->GetResourceManager().MarkAsExpired(object_info_buffer_);
+        }
+    };
+
+    class ModelDrawcall : public Drawcall {
+    public:
+        using Vertex = ObjectDrawcall::Vertex;
+        using Index = ObjectDrawcall::Index;
+        using Instance = ObjectDrawcall::Instance;
+        using VertexAttrs = ObjectDrawcall::VertexAttrs;
+        using InstanceAttrs = ObjectDrawcall::InstanceAttrs;
+        using ObjectInfo = ObjectDrawcall::ObjectInfo;
+        using ObjectPipeline = ObjectDrawcall::ObjectPipeline;
+        using PBRObjectPipeline = ObjectDrawcall::PBRObjectPipeline;
+        using ShadowPipeline = ObjectDrawcall::ShadowPipeline;
+
+    private:
+        PrismApp* app_;
+        ShadowRenderPass& shadow_rp_;
+        Pipeline* pipeline_;
+        ShadowPipeline* shadow_pipeline_;
+        ResourceHandle scene_info_;
+        std::vector<ModelLoader::Drawable> drawables_;
+        std::vector<ResourceHandle> object_info_buffer_;
+        ObjectInfo object_info_ {};
+
+    public:
+        ModelDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ResourceHandle scene_info, const std::string& object_name, const std::vector<ModelLoader::Drawable>& drawables, bool use_pbr) : app_(app), shadow_rp_(shadow_rp), scene_info_(scene_info), drawables_(drawables), object_info_buffer_(drawables.size()) {
+            shadow_pipeline_ = app_->GetPipelineManager().GetPipeline<ShadowPipeline>("ShadowPipeline");
+            for (size_t i = 0; i <  drawables_.size(); ++i) {
+                object_info_buffer_[i] = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
+            }
+            if (use_pbr) {
+                pipeline_ = app_->GetPipelineManager().GetPipeline<PBRObjectPipeline>("PBRObjectPipeline");
+            } else {
+                pipeline_ = app_->GetPipelineManager().GetPipeline<ObjectPipeline>("ObjectPipeline");
+            }
+        }
+        ModelDrawcall(const ModelDrawcall&) = delete;
+        ModelDrawcall(ModelDrawcall&&) = delete;
+
+        void ApplyProperties() {
+            XMMATRIX world = XMLoadFloat4x4(&object_info_.world);
+            for (size_t i = 0; i < drawables_.size(); ++i) {
+                StructuredView<ObjectInfo> object_info(object_info_buffer_[i]);
+                object_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+                XMMATRIX model = XMLoadFloat4x4(&drawables_[i].mesh_transform);
+                XMStoreFloat4x4(&object_info[0].world, model * world);
+            }
+        }
+
+        ObjectInfo& GetObjectInfo() {
+            return object_info_;
+        }
+
+        RecordDispatcher::RecordProcess CreateShadowProcess() {
+            return {
+                [&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                    for (size_t i = 0; i < drawables_.size(); ++i) {
+                        object_info_buffer_[i]->GetRenderWaitable().GetFenceValue() = nfv;
+                        drawables_[i].mesh->RenderSync(nfv);
+                    }
+                    list->SetPipelineState(shadow_pipeline_->GetPSO().Get());
+                    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    list->SetGraphicsRootSignature(shadow_pipeline_->GetSignature());
+                    list->SetGraphicsRootConstantBufferView(0, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                    for (size_t i = 0; i < drawables_.size(); ++i) {
+                        list->SetGraphicsRootConstantBufferView(1, object_info_buffer_[i]->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                        drawables_[i].mesh->DrawMesh(list);
+                    }
+                    return nullptr;
+                }
+            };
+        }
+
+        RecordDispatcher::RecordProcess CreateRenderProcess() override {
+            return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                for (size_t i = 0; i < drawables_.size(); ++i) {
+                    object_info_buffer_[i]->GetRenderWaitable().GetFenceValue() = nfv;
+                    drawables_[i].mesh->RenderSync(nfv);
+                }
+                scene_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                list->SetPipelineState(pipeline_->GetPSO().Get());
+                list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                ID3D12DescriptorHeap* heaps[] = { app_->GetResourceManager().GetTextureHeap().GetD3D12Heap() };
+                list->SetDescriptorHeaps(1, heaps);
+                list->SetGraphicsRootSignature(pipeline_->GetSignature());
+                list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());
+                list->SetGraphicsRootConstantBufferView(1, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                for (size_t i = 0; i < drawables_.size(); ++i) {
+                    list->SetGraphicsRootConstantBufferView(2, object_info_buffer_[i]->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                    drawables_[i].mesh->DrawMesh(list);
+                }
+                return nullptr;
+            }};
+        }
+
+        ~ModelDrawcall() override {
+            for (size_t i = 0; i < drawables_.size(); ++i) {
+                app_->GetResourceManager().MarkAsExpired(object_info_buffer_[i]);
+            }
         }
     };
 
@@ -374,36 +383,46 @@ namespace Prism
             sc_.MakeLightVP(scene_info[0].light_vp);
             scene_info[0].ambient_light = ambient_light_;
             scene_info[0].camera_position = camera_.GetCameraPos4();
+            scene_info[0].shadow_maps[0] = shadow_rp_.GetFrameResource(app_->GetRenderContext().GetCurrentIndex()).shadow_map->GetResourceMeta().Tex2D.bind_index;
         }
 
         XMFLOAT4& GetAmbientLight() {
             return ambient_light_;
         }
 
-        ObjectDrawcall* CreateObjectDrawcall(const std::string& name, std::vector<ObjectDrawcall::Vertex>& vertices, std::vector<ObjectDrawcall::Index>& indices, const ObjectDrawcall::ObjectProperties& prop) {
+        ObjectDrawcall* CreateObjectDrawcall(const std::string& name, CompactMesh* mesh, bool enable_pbr = true) {
             if (drawcalls.contains(name)) {
-                LFATAL("Cannot create object drawcall {}: drawcall already exists");
+                LFATAL("Cannot create object drawcall {}: drawcall already exists", name);
             }
-            auto* drawcall = new ObjectDrawcall(app_, shadow_rp_, scene_info_, name, vertices, indices, prop);
+            auto* drawcall = new ObjectDrawcall(app_, shadow_rp_, scene_info_, name, mesh, enable_pbr);
             drawcalls[name] = drawcall;
-            return static_cast<ObjectDrawcall*>(drawcalls[name]);
+            return dynamic_cast<ObjectDrawcall*>(drawcalls[name]);
         }
 
-        LightSrcDrawcall* CreateLightSrcDrawcall(const std::string& name, std::vector<LightSrcDrawcall::Vertex>& vertices, std::vector<LightSrcDrawcall::Index>& indices, const LightSrcDrawcall::LightSrcProperties& prop) {
+        ModelDrawcall* CreateModelDrawcall(const ModelLoader::Model& model, bool enable_pbr = true) {
+            if (drawcalls.contains(model.name)) {
+                LFATAL("Cannot create model drawcall {}: drawcall already exists", model.name);
+            }
+            auto* drawcall = new ModelDrawcall(app_, shadow_rp_, scene_info_, model.name, model.drawables, enable_pbr);
+            drawcalls[model.name] = drawcall;
+            return dynamic_cast<ModelDrawcall*>(drawcalls[model.name]);
+        }
+
+        LightSrcDrawcall* CreateLightSrcDrawcall(const std::string& name, CompactMesh* mesh) {
             if (drawcalls.contains(name)) {
-                LFATAL("Cannot create light source drawcall {}: drawcall already exists");
+                LFATAL("Cannot create light source drawcall {}: drawcall already exists", name);
             }
             uint16_t assigned_index = 0;
             {
                 StructuredView<RealisticSceneInfo> sc_info(scene_info_);
-                if (sc_info[0].dotlight_count >= 16) {
-                    LFATAL("Cannot create light source drawcall {}: light source too much");
+                if (sc_info[0].dotlight_count >= 4) {
+                    LFATAL("Cannot create light source drawcall {}: light source too much", name);
                 }
                 assigned_index = sc_info[0].dotlight_count;
             }
-            auto* drawcall = new LightSrcDrawcall(app_, scene_info_, name, vertices, indices, prop, assigned_index);
+            auto* drawcall = new LightSrcDrawcall(app_, scene_info_, name, mesh, assigned_index);
             drawcalls[name] = drawcall;
-            return static_cast<LightSrcDrawcall*>(drawcalls[name]);
+            return dynamic_cast<LightSrcDrawcall*>(drawcalls[name]);
         }
 
         template<typename T>

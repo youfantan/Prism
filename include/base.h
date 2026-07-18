@@ -170,4 +170,13 @@ namespace Prism
         BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, (PBYTE)(&input[0]), input.size(), digest, 32);
         return ToHexLowerCase(digest, 32);
     }
+
+    inline XMMATRIX MakeUnitMatrix() {
+        return XMMatrixSet(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        );
+    }
 }

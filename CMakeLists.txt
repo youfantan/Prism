@@ -75,6 +75,8 @@ add_executable(pipline-demo
         src/pipelines/realistic_scene.cpp
         include/io/texture.h
         src/base.cpp
+        src/io/texture.cpp
+        include/transform/world.h
 )
 target_link_libraries(pipline-demo d3d12 dxgi d3dcompiler dxcompiler dxguid DirectXTex bcrypt turbojpeg freetype)
 add_dependencies(pipline-demo copy_dirs copy_binaries)

@@ -10,6 +10,7 @@ enum class log_level
 {
     info,
     debug,
+    warn,
     error,
     fatal,
 };
@@ -47,6 +48,10 @@ void log(std::source_location location, const std::string& format, Args&&... arg
     if constexpr (lv == log_level::debug) {
         prefix = "DEBUG";
         color = "\033[32m";
+    }
+    if constexpr (lv == log_level::warn) {
+        prefix = "WARN";
+        color = "\033[33m";
     }
     if constexpr (lv == log_level::error) {
         prefix = "ERROR";
@@ -123,5 +128,6 @@ inline bool mlog_enable_win32_vansi() {
 #else
 #define LDEBUG(fmt, ...)
 #endif
+#define LWARN(fmt, ...) log<log_level::warn>(std::source_location::current(), fmt, ##__VA_ARGS__)
 #define LERROR(fmt, ...) log<log_level::error>(std::source_location::current(), fmt, ##__VA_ARGS__)
 #define LFATAL(fmt, ...) { log<log_level::fatal>(std::source_location::current(), fmt, ##__VA_ARGS__); exit(EXIT_FAILURE); }

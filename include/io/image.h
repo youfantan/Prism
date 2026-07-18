@@ -38,14 +38,19 @@ namespace Prism
         size_t width;
         size_t height;
         DXGI_FORMAT dx_format;
+        bool managed_;
 
-        Image(size_t width, size_t height, size_t stride, DXGI_FORMAT dx_format) : width(width), height(height), stride(stride), dx_format(dx_format) {
+        Image(size_t width, size_t height, size_t stride, DXGI_FORMAT dx_format) : width(width), height(height), stride(stride), dx_format(dx_format), managed_(false) {
             ptr = new uint8_t[width * height * stride];
             memset(ptr, 0, width * height * stride);
         }
 
+        Image(size_t width, size_t height, size_t stride, uint8_t* data, DXGI_FORMAT dx_format) : width(width), height(height), stride(stride), ptr(data), dx_format(dx_format), managed_(true) {
+
+        }
+
         Image(const Image&) = delete;
-        Image(Image&& img) noexcept : ptr(img.ptr), stride(img.stride), width(img.width), height(img.height), dx_format(img.dx_format) {
+        Image(Image&& img) noexcept : ptr(img.ptr), stride(img.stride), width(img.width), height(img.height), dx_format(img.dx_format), managed_(img.managed_) {
             img.ptr = nullptr;
             img.stride = 0;
             img.width = 0;
@@ -68,7 +73,7 @@ namespace Prism
         }
 
         ~Image() {
-            if (ptr != nullptr) {
+            if (!managed_ && ptr != nullptr) {
                 delete[] ptr;
                 width = 0;
                 height = 0;

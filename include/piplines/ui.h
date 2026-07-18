@@ -74,8 +74,6 @@ namespace Prism
             { "COLOR",   0, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 20, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
         };
 
-        constexpr static size_t LAYOUT_COUNT = sizeof(LAYOUT) / sizeof(D3D12_INPUT_ELEMENT_DESC);
-
         class TextPipeline : public Pipeline {
         private:
             PrismApp* app_;
@@ -153,17 +151,25 @@ namespace Prism
             ResourceHandle font_meta;
         };
         PrismApp* app_;
-        Mesh<CharacterVertex, CharacterIndex> text_mesh_;
+        CompactMesh text_mesh_;
         ResourceHandle characters_;
         ResourceHandle ui_presets_;
         std::vector<std::vector<StringResBinding>> strings_;
         StructuredView<CharacterInfo> characters_view_;
         FontLoader loader_;
         constexpr static size_t MAX_CHARACTERS = 1024 * 1024;
-        uint64_t sync_value_;
         TextPipeline* text_pipeline_;
     public:
-        UIFramework(PrismApp* app) : app_(app), text_mesh_("UI_Text", vertices, indices, app->GetResourceManager()), loader_(app->GetInitializeParams().assets_dir, app->GetResourceManager()) {
+        UIFramework(PrismApp* app) : app_(app), text_mesh_("UIText", app->GetResourceManager(), true), loader_(app->GetInitializeParams().assets_dir, app->GetResourceManager()) {
+            text_mesh_.vertex_buffer = app_->GetResourceManager().CreateRemoteBuffer("UIText_VertexBuffer", vertices, D3D12_RESOURCE_STATE_COMMON);
+            text_mesh_.index_buffer = app_->GetResourceManager().CreateRemoteBuffer("UIText_IndexBuffer", indices, D3D12_RESOURCE_STATE_COMMON);
+            text_mesh_.primitives.resize(1);
+            text_mesh_.primitives[0].vertex_buffer_view.BufferLocation = text_mesh_.vertex_buffer->GetD3D12Resource()->GetGPUVirtualAddress();
+            text_mesh_.primitives[0].vertex_buffer_view.SizeInBytes = text_mesh_.vertex_buffer->GetResourceMeta().Buffer.element_count * text_mesh_.vertex_buffer->GetResourceMeta().Buffer.element_size;
+            text_mesh_.primitives[0].vertex_buffer_view.StrideInBytes = text_mesh_.vertex_buffer->GetResourceMeta().Buffer.element_size;
+            text_mesh_.primitives[0].index_buffer_view.BufferLocation = text_mesh_.index_buffer->GetD3D12Resource()->GetGPUVirtualAddress();
+            text_mesh_.primitives[0].index_buffer_view.Format = DXGI_FORMAT_R32_UINT;
+            text_mesh_.primitives[0].index_buffer_view.SizeInBytes = text_mesh_.index_buffer->GetResourceMeta().Buffer.element_count * text_mesh_.index_buffer->GetResourceMeta().Buffer.element_size;
             app_->GetPipelineManager().CreatePipeline<TextPipeline>("UITextPipeline", app);
             text_pipeline_ = app_->GetPipelineManager().GetPipeline<TextPipeline>("UITextPipeline");
             characters_ = app_->GetResourceManager().CreateLocalBuffer("UI_Text_CharactersInfo", sizeof(CharacterInfo), MAX_CHARACTERS, D3D12_RESOURCE_STATE_COMMON);
@@ -178,7 +184,6 @@ namespace Prism
             }
             LDEBUG("UI Framework initialized");
         }
-
         UIFramework(const UIFramework&) = delete;
         UIFramework(UIFramework&&) = delete;
 
@@ -205,7 +210,6 @@ namespace Prism
         RecordDispatcher::RecordProcess CreateRenderProcess() {
             RecordDispatcher::RecordProcess proc = {
                 [&, layer = app_->GetRenderContext().GetCurrentIndex(), strings = strings_[app_->GetRenderContext().GetCurrentIndex()]](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                    sync_value_ = nfv;
                     text_mesh_.RenderSync(nfv);
                     for (auto& str : strings) {
                         str.font_meta->GetCopyWaitable().GPUWait();
@@ -225,14 +229,14 @@ namespace Prism
                         list->SetGraphicsRootShaderResourceView(1, string.font_meta->GetD3D12Resource()->GetGPUVirtualAddress());
                         list->SetGraphicsRootConstantBufferView(2, ui_presets_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
                         D3D12_VERTEX_BUFFER_VIEW views[2] {};
-                        views[0] = text_mesh_.GetVertexBufferView();
+                        views[0] = text_mesh_.primitives[0].vertex_buffer_view;
                         views[1].BufferLocation = characters_->GetD3D12Resource(layer)->GetGPUVirtualAddress();
                         views[1].StrideInBytes = characters_->GetResourceMeta().Buffer.element_size;
                         views[1].SizeInBytes = characters_->GetResourceMeta().Buffer.element_count * characters_->GetResourceMeta().Buffer.element_size;
-                        auto& ibv = text_mesh_.GetIndexBufferView();
+                        auto& ibv = text_mesh_.primitives[0].index_buffer_view;
                         list->IASetVertexBuffers(0, 2, views);
                         list->IASetIndexBuffer(&ibv);
-                        list->DrawIndexedInstanced(text_mesh_.GetIndexBuffer()->GetResourceMeta().Buffer.element_count, string.len, 0, 0, instance_off);
+                        list->DrawIndexedInstanced(text_mesh_.index_buffer->GetResourceMeta().Buffer.element_count, string.len, 0, 0, instance_off);
                         instance_off += string.len;
                     }
                     return new uint64_t(layer);

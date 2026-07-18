@@ -5,14 +5,13 @@ struct Pixel
     float3 world_position : WPOS;
     float2 uv : TEXCOORD;
     float3 normal : NORMAL;
+    uint tex_idx : TEXIDX;
+    uint normal_tex_idx : NTEXIDX;
+    uint rough_tex_idx : RTEXIDX;
 };
 
 cbuffer Presets : register(b1) {
     row_major float4x4 world;
-    uint tex_index;
-    uint shadow_index;
-    uint normal_index;
-    uint rough_index;
 }
 
 cbuffer Scene : register(b0) {
@@ -21,16 +20,17 @@ cbuffer Scene : register(b0) {
     float4 ambient_light;
     float4 camera_pos;
     uint dotlight_count;
-    float3 dotlight_pos[4];
-    float3 dotlight_color[4];
+    float4 dotlight_pos[4];
+    float4 dotlight_color[4];
+    uint4 shadow_index;
 }
 
 SamplerState LinearSampler : register(s0);
 SamplerComparisonState CompSampler : register(s1);
 
 float4 main(Pixel p) : SV_Target {
-    Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(tex_index)];
-    Texture2D shadow_map = ResourceDescriptorHeap[NonUniformResourceIndex(shadow_index)];
+    Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.tex_idx)];
+    Texture2D shadow_map = ResourceDescriptorHeap[NonUniformResourceIndex(shadow_index[0])];
     float3 N = normalize(p.normal);
     float3 V = normalize(camera_pos.xyz - p.world_position);
     float3 tex_color = tex.Sample(LinearSampler, p.uv);

@@ -14,6 +14,20 @@ namespace Prism
         PBR,
     };
 
+    inline std::string GetTextureTypeString(TextureType tt) {
+        switch (tt) {
+            case TextureType::IMAGE: {
+                return "IMAGE";
+            }
+            case TextureType::PBR: {
+                return "PBR";
+            }
+            default: {
+                return "Unknown";
+            }
+        }
+    }
+
     struct Texture {
         std::string name;
         TextureType type;
@@ -65,8 +79,7 @@ namespace Prism
             return nullptr;
         }
 
-    public:
-        TextureLoader(std::string prefix, ResourceManager& rm) : prefix_(prefix), rm_(rm) {
+        void LoadStaticTextures() {
             std::string index_path = prefix_ + "/" + "textures.json";
             std::ifstream index_file(index_path, std::ios::in | std::ios::binary);
             json index = json::parse(index_file);
@@ -110,6 +123,41 @@ namespace Prism
                 }
                 texture_map_[ntex.name] = ntex;
             }
+        }
+
+    public:
+        TextureLoader(std::string prefix, ResourceManager& rm) : prefix_(prefix), rm_(rm) {
+            LoadStaticTextures();
+        }
+
+        void LoadModelTextures(const std::string& model_name, const tinygltf::Model& model, const tinygltf::Material& material) {
+            auto& pbr = material.pbrMetallicRoughness;
+            Texture tex {};
+            tex.name = std::format("{}_{}_Material", model_name, material.name);
+            if (texture_map_.contains(tex.name)) {
+                LFATAL("Cannot load model {} texture: resource with same name {} already exists", model_name, tex.name);
+            }
+            if (pbr.baseColorTexture.index < 0) {
+                LFATAL("Cannot load model material {}: at least basic color texture is required in the model", tex.name);
+            } else {
+                std::string name = std::format("{}_{}_ColorTexture", model_name, material.name);
+                auto& img = model.images[model.textures[pbr.baseColorTexture.index].source];
+                tex.Resources.Image.tex = rm_.CreateTexture2DFromGLTFImage(name, img);
+            }
+            if (pbr.metallicRoughnessTexture.index > 0 && material.normalTexture.index > 0) {
+                tex.type = TextureType::PBR;
+                auto& normal = model.images[model.textures[material.normalTexture.index].source];
+                auto& rough = model.images[model.textures[pbr.metallicRoughnessTexture.index].source];
+                std::string normal_name = std::format("{}_{}_NormalTexture", model_name, material.name);
+                std::string rough_name = std::format("{}_{}_RoughnessTexture", model_name, material.name);
+                tex.Resources.PBR.normal_tex = rm_.CreateTexture2DFromGLTFImage(normal_name, normal);
+                tex.Resources.PBR.rough_tex = rm_.CreateTexture2DFromGLTFImage(rough_name, rough);
+                LINFO("Loaded texture of model material, {}:{} -> {}, type: {}", model_name, material.name, tex.name, "PBR");
+            } else {
+                tex.type = TextureType::IMAGE;
+                LINFO("Loaded texture of model material, {}:{} -> {}, type: {}", model_name, material.name, tex.name, "IMAGE");
+            }
+            texture_map_[tex.name] = tex;
         }
 
         std::optional<Texture*> Get(const std::string& name) {
