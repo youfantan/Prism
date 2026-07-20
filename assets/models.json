@@ -4,6 +4,16 @@
       "name": "Teacup",
       "path": "Teacup.glb",
       "type": "glTF-Binary"
+    },
+    {
+      "name": "VirtualCity",
+      "path": "VirtualCity.glb",
+      "type": "glTF-Binary"
+    },
+    {
+      "name": "Room",
+      "path": "Room.glb",
+      "type": "glTF-Binary"
     }
   ]
 }

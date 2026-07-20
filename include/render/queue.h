@@ -9,9 +9,9 @@
 
 namespace Prism
 {
-
 class RecordDispatcher {
 public:
+    constexpr static uint64_t MAX_TASK_INWAIT = 1000;
     using RecordProcess = struct {
         std::function<void*(ComPtr<ID3D12GraphicsCommandList>, uint64_t)> record;
         std::function<void(void*)> sync;
@@ -39,7 +39,7 @@ private:
     std::vector<WorkerContext*> contexts;
 
     static DWORD WorkerFunc(LPVOID param) {
-        auto* ctx = reinterpret_cast<WorkerContext*>(param);
+        auto* ctx = static_cast<WorkerContext*>(param);
         while (ctx->flag) {
             WaitForSingleObject(ctx->mutex, INFINITE);
             if (!ctx->tasks.empty()) {
@@ -124,6 +124,7 @@ public:
                 select_ctx = ctx;
             }
         }
+        while (select_ctx->tasks.size() > MAX_TASK_INWAIT) {}
         WaitForSingleObject(select_ctx->mutex, INFINITE);
         select_ctx->tasks.push_back(std::move(task));
         ReleaseMutex(select_ctx->mutex);

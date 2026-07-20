@@ -307,8 +307,8 @@ namespace Prism
             upload_ib->GetD3D12Resource()->Unmap(0, nullptr);
             cm.vertex_buffer = mgr.CreateRemoteBuffer(std::format("VertexBuffer_{}", mesh_name), 1, vertex_buffer_length, D3D12_RESOURCE_STATE_COMMON);
             cm.index_buffer = mgr.CreateRemoteBuffer(std::format("IndexBuffer_{}", mesh_name), 1, index_buffer_length, D3D12_RESOURCE_STATE_COMMON);
-            Resource::CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_vb, cm.vertex_buffer);
-            Resource::CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_ib, cm.index_buffer);
+            mgr.CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_vb, cm.vertex_buffer);
+            mgr.CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_ib, cm.index_buffer);
             if constexpr (!NoInstance) {
                 ResourceHandle upload_is = mgr.CreateLocalBuffer(std::format("Upload_InstanceBuffer_{}", mesh_name), 1, instance_buffer_length, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE, nullptr, true);
                 cm.instance_buffer = mgr.CreateRemoteBuffer(std::format("InstanceBuffer_{}", mesh_name), 1, instance_buffer_length, D3D12_RESOURCE_STATE_COMMON);
@@ -320,7 +320,7 @@ namespace Prism
                     off_is += p.instances.size();
                 }
                 upload_is->GetD3D12Resource()->Unmap(0, nullptr);
-                Resource::CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_is, cm.instance_buffer);
+                mgr.CopyToRemoteBuffer(mgr.GetCopyDispatcher(), upload_is, cm.instance_buffer);
             }
             size_t vb_bytes_off = 0;
             size_t ib_bytes_off = 0;

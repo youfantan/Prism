@@ -80,12 +80,12 @@ namespace Prism
             if (!err.empty()) {
                 LFATAL("Cannot load GLB model {} because {}", model_path, err);
             }
-            for (auto& m : model.materials) {
-                tex_loader_.LoadModelTextures(model_name, model, m);
+            for (size_t i = 0; i < model.materials.size(); ++i) {
+                tex_loader_.LoadModelTextures(model_name, model, model.materials[i], i);
             }
             for (size_t i = 0; i < model.meshes.size(); ++i) {
                 auto& mesh = model.meshes[i];
-                Mesh mesh_create(std::format("{}_{}", model_name, mesh.name), mesh.primitives.size(), rm_);
+                Mesh mesh_create(std::format("{}_Mesh #{}", model_name, i), mesh.primitives.size(), rm_);
                 for (size_t p = 0; p < mesh.primitives.size(); ++p) {
                     auto& primitive = mesh.primitives[p];
                     if (primitive.attributes.empty()) continue;
@@ -101,6 +101,10 @@ namespace Prism
                     for (std::string_view& cname : semantic_names) {
                         std::string name(cname.data());
                         if (!primitive.attributes.contains(name)) {
+                            if (name.starts_with("TEXCOORD")) {
+                                LWARN("Attribute {} not exists in given model {} mesh {} primitive #{}, fill with zero", name, model_name, mesh.name, p);
+                                continue;
+                            }
                             LFATAL("Attribute {} not exists in given model {} mesh {} primitive #{}", name, model_name, mesh.name, p);
                         }
                         size_t attr_off = VertexAttrs::GetSemanticOffset(name);
@@ -133,36 +137,40 @@ namespace Prism
                             *reinterpret_cast<IndexType*>(&destination.indices[d * sizeof(IndexType)]) = *reinterpret_cast<const uint32_t*>(&indices_buffer.data[indices_byte_offset + d * sizeof(uint32_t)]);
                         }
                     } else if (acc_indices.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+                        if (sizeof(IndexType) < sizeof(uint16_t)) {
+                            LFATAL("Index type sized {} is not big enough to contains uint16_t index in given model {} mesh {} primitive #{}", sizeof(IndexType), model_name, mesh.name, p);
+                        }
                         for (size_t d = 0; d < acc_indices.count; ++d) {
-                            destination.indices[d] = *reinterpret_cast<const uint16_t*>(&indices_buffer.data[indices_byte_offset + d * sizeof(uint16_t)]);
+                            *reinterpret_cast<IndexType*>(&destination.indices[d * sizeof(IndexType)]) = *reinterpret_cast<const uint16_t*>(&indices_buffer.data[indices_byte_offset + d * sizeof(uint16_t)]);
                         }
                     }
                     if (primitive.material < 0) LFATAL("Cannot load GLB model {}: no material found", model_path);
-                    std::string texture_name = std::format("{}_{}_Material", model_name, model.materials[primitive.material].name);
+                    std::string texture_name = std::format("{}_Material #{}", model_name, primitive.material);
                     destination.instances.resize(InstanceAttrs::Stride());
                     Texture* tex = tex_loader_.Get(texture_name).value();
                     size_t texidx_offset = InstanceAttrs::GetSemanticOffset("TEXIDX");
+                    std::string tex_info;
                     if (tex->type == TextureType::IMAGE) {
-                        memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.Image.tex, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));
+                        tex_info = std::format("type Image, referenced texture index: {}", tex->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index);
                     } else if (tex->type == TextureType::PBR) {
-                        memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.PBR.tex, sizeof(uint32_t));
-                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t) * 1, &tex->Resources.PBR.normal_tex, sizeof(uint32_t));
-                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t) * 2, &tex->Resources.PBR.rough_tex, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t) * 1, &tex->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t) * 2, &tex->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));
+                        tex_info = std::format("type PBR, referenced texture index: color {}, normal {}, rough {}", tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index, tex->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index, tex->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index);
                     }
-                    std::string_view model_info(R"(
-Loaded primitive #{} of mesh {} in model {}({}), detailed:
+                    std::string model_info (R"(
+Loaded primitive #{} of mesh '{}' in model '{}'({}), detailed,
 Texture:
     {}
 Indices:
     count {}, type {}
-Attributes:
-)");
-                    LDEBUG(model_info.data(), p, mesh.name, model_name, model_path, texture_name, acc_indices.count, acc_indices.componentType);
+Attributes:)");
                     for (std::string_view& cname : semantic_names) {
-                        std::string_view attr_info("attr '{}' count {}, type {}, stride {}");
                         auto& attr_access = model.accessors[primitive.attributes[cname.data()]];
-                        LDEBUG(attr_info.data(), cname.data(), attr_access.count, attr_access.componentType, model.bufferViews[attr_access.bufferView].byteStride);
+                        model_info.append(std::format("\n    attr '{}' count {}, type {}, stride {}", cname.data(), attr_access.count, attr_access.componentType, model.bufferViews[attr_access.bufferView].byteStride));
                     }
+                    LDEBUG(model_info.data(), p, mesh.name, model_name, model_path, tex_info, acc_indices.count, acc_indices.componentType);
                 }
                 mesh_mgr_.CreateMesh(mesh_create.UploadToGPU());
             }
@@ -201,7 +209,7 @@ Attributes:
                         scaling.y = static_cast<float>(n->scale[1]);
                         scaling.z = static_cast<float>(n->scale[2]);
                     }
-                    return MakeWorldMatrix(translation, rotation, scaling);
+                    return MakeWorldMatrix(scaling, rotation, translation);
                 }
             };
 
@@ -213,10 +221,10 @@ Attributes:
                 LFATAL("Cannot load GLB model {}: no default scene found", model_path);
             }
             while (!nodes.empty()) {
-                auto& node = nodes.back();
+                TransformNode node = std::move(nodes.back());
                 nodes.pop_back();
                 XMMATRIX mat = MakeTransformMatrix(node.gltf_node);
-                node.mat = node.mat * mat;
+                node.mat = mat * node.mat;
                 tinygltf::Node* gltf_node = node.gltf_node;
                 if (gltf_node->mesh >= 0) {
                     auto& instance = instances[gltf_node->mesh].emplace_back();
@@ -228,7 +236,7 @@ Attributes:
             }
             std::vector<Drawable> drawables;
             for (auto& m : instances) {
-                CompactMesh* mesh = mesh_mgr_.GetMesh(std::format("{}_{}", model_name, model.meshes[m.first].name)).value();
+                CompactMesh* mesh = mesh_mgr_.GetMesh(std::format("{}_Mesh #{}", model_name, m.first)).value();
                 for (auto& xm : m.second) {
                     drawables.emplace_back(mesh, xm);
                 }

@@ -3,6 +3,7 @@ struct Vertex
     float3 position : POSITION;
     float2 uv : TEXCOORD;
     float3 normal : NORMAL;
+    uint4 tex_idx : TEXIDX;
 };
 
 struct Pixel {

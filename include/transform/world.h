@@ -60,7 +60,7 @@ namespace Prism
         float z;
         float w;
 
-        XYZWRotationTransform() : w(1.0f) {}
+        XYZWRotationTransform() : x(0.0f), y(0.0f), z(0.0f), w(1.0f) {}
 
         XMMATRIX MakeTransformMatrix() const {
             return XMMatrixRotationQuaternion(XMVectorSet(x, y, z, w));

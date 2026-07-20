@@ -3,6 +3,7 @@
 #include <base.h>
 
 #include <mlog.h>
+#include <mutex>
 #include <utils.h>
 
 #include <render/queue.h>
@@ -186,59 +187,6 @@ namespace Prism
                 allocator_->FreeResource(r);
             }
         }
-
-        static bool CopyToRemoteBuffer(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest) {
-            // type validation
-            if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
-                && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
-                && src->GetResourceMeta().Buffer.type == HeapType::UPLOAD
-                && dest->GetResourceMeta().Buffer.type == HeapType::DEFAULT
-                && src->GetResourceMeta().Buffer.element_count * src->GetResourceMeta().Buffer.element_size <= dest->GetResourceMeta().Buffer.element_count * dest->GetResourceMeta().Buffer.element_size
-                ) {
-                copy_dispatcher.PostRecordTask({{[=](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                    src->GetRenderWaitable().GPUWait();
-                    src->GetCopyWaitable().GPUWait();
-                    src->GetCopyWaitable().GetFenceValue() = nfv;
-                    dest->GetRenderWaitable().GPUWait();
-                    dest->GetCopyWaitable().GPUWait();
-                    dest->GetCopyWaitable().GetFenceValue() = nfv;
-                    list->CopyResource(dest->GetD3D12Resource(), src->GetD3D12Resource());
-                    return nullptr;
-                }, [&](void*) {}}});
-                return true;
-            }
-            LFATAL("Cannot copy buffer {} to remote buffer {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
-            return false;
-        }
-
-        static bool CopyToTexture(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
-            // type validation
-            if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
-                && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
-                && src->GetResourceMeta().Buffer.type == HeapType::UPLOAD) {
-                copy_dispatcher.PostRecordTask({{[=](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
-                    D3D12_TEXTURE_COPY_LOCATION src_loc {};
-                    src_loc.pResource = src->GetD3D12Resource();
-                    src_loc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-                    src_loc.PlacedFootprint = footprint;
-                    D3D12_TEXTURE_COPY_LOCATION dest_loc {};
-                    dest_loc.pResource = dest->GetD3D12Resource();
-                    dest_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    dest_loc.SubresourceIndex = 0;
-                    src->GetRenderWaitable().GPUWait();
-                    src->GetCopyWaitable().GPUWait();
-                    src->GetCopyWaitable().GetFenceValue() = nfv;
-                    dest->GetRenderWaitable().GPUWait();
-                    dest->GetCopyWaitable().GPUWait();
-                    dest->GetCopyWaitable().GetFenceValue() = nfv;
-                    list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
-                    return nullptr;
-                }, [](void*) {}}});
-                return true;
-            }
-            LFATAL("Cannot copy buffer {} to texture {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
-            return false;
-        }
     };
 
     using ResourceHandle = Resource*;
@@ -332,6 +280,7 @@ namespace Prism
         RecordDispatcher& copy_dispatcher_;
         const dx_init_t& init_;
         TextureHeap tex_heap_;
+        std::mutex mtx_;
 
         DXGI_FORMAT ParseGLTFImageFormat(const tinygltf::Image& img) {
             if (img.pixel_type == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
@@ -361,6 +310,7 @@ namespace Prism
         }
 
         ResourceHandle CreateLocalBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr, bool single_layer = false) {
+            std::lock_guard guard(mtx_);
             size_t bytes = element_size * element_count;
             D3D12_RESOURCE_DESC desc {
                 .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -404,6 +354,7 @@ namespace Prism
         }
 
         ResourceHandle CreateRemoteBuffer(const std::string& name, size_t element_size, size_t element_count, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+            std::lock_guard guard(mtx_);
             size_t bytes = element_size * element_count;
             D3D12_RESOURCE_DESC desc {
                 .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -434,8 +385,7 @@ namespace Prism
         ResourceHandle CreateRemoteBuffer(const std::string& name, const std::vector<T>& vector, D3D12_RESOURCE_STATES initial_states, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
             ResourceHandle upload = CreateLocalBuffer("UploadBuffer_" + name, vector, initial_states, flags, pclr, true);
             ResourceHandle rh = CreateRemoteBuffer(name, sizeof(T), vector.size(), initial_states, flags, pclr);
-            Resource::CopyToRemoteBuffer(copy_dispatcher_, upload, rh);
-            MarkAsExpired(upload);
+            CopyToRemoteBuffer(copy_dispatcher_, upload, rh);
             return rh;
         }
 
@@ -458,6 +408,7 @@ namespace Prism
         };
 
         ResourceHandle CreateTexture2D(const std::string& name, uint32_t width, uint32_t height, uint16_t mip_levels, DXGI_FORMAT fmt, D3D12_RESOURCE_STATES initial_states, const TextureBindSettings& bind_settings = AUTO_TEXTURE_BIND, const DXGI_SAMPLE_DESC& multi_sample_desc = { 1, 0 }, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, D3D12_CLEAR_VALUE* pclr = nullptr) {
+            std::lock_guard guard(mtx_);
             D3D12_RESOURCE_DESC desc {
                 .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 .Alignment = 0,
@@ -502,8 +453,7 @@ namespace Prism
                 memcpy(dest + i * dest_pitch, img.At(0, i), img.width * img.stride);
             }
             upload->GetD3D12Resource()->Unmap(0, nullptr);
-            Resource::CopyToTexture(copy_dispatcher_, upload, texture, footprint);
-            MarkAsExpired(upload);
+            CopyToTexture(copy_dispatcher_, upload, texture, footprint);
             return texture;
         }
 
@@ -532,12 +482,12 @@ namespace Prism
                 }
             }
             upload->GetD3D12Resource()->Unmap(0, nullptr);
-            Resource::CopyToTexture(copy_dispatcher_, upload, texture, footprint);
-            MarkAsExpired(upload);
+            CopyToTexture(copy_dispatcher_, upload, texture, footprint);
             return texture;
         }
 
         ResourceHandle CreateAdoptedBackBuffer(const std::string& name, ID3D12Resource* backbuffer, D3D12_RESOURCE_STATES current_states) {
+            std::lock_guard guard(mtx_);
             Resource::ResourceMeta meta {
                 .Tex2D = {
                     .stride = BitsPerPixel(backbuffer->GetDesc().Format) / 8,
@@ -561,7 +511,63 @@ namespace Prism
             return render_dispatcher_;
         }
 
+        bool CopyToRemoteBuffer(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest) {
+            // type validation
+            if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+                && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+                && src->GetResourceMeta().Buffer.type == Resource::HeapType::UPLOAD
+                && dest->GetResourceMeta().Buffer.type == Resource::HeapType::DEFAULT
+                && src->GetResourceMeta().Buffer.element_count * src->GetResourceMeta().Buffer.element_size <= dest->GetResourceMeta().Buffer.element_count * dest->GetResourceMeta().Buffer.element_size
+                ) {
+                copy_dispatcher.PostRecordTask({{[&, src, dest](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                    src->GetRenderWaitable().GPUWait();
+                    src->GetCopyWaitable().GPUWait();
+                    src->GetCopyWaitable().GetFenceValue() = nfv;
+                    dest->GetRenderWaitable().GPUWait();
+                    dest->GetCopyWaitable().GPUWait();
+                    dest->GetCopyWaitable().GetFenceValue() = nfv;
+                    list->CopyResource(dest->GetD3D12Resource(), src->GetD3D12Resource());
+                    MarkAsExpired(src);
+                    return nullptr;
+                }, [&](void*) {}}});
+                return true;
+            }
+            LFATAL("Cannot copy buffer {} to remote buffer {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
+            return false;
+        }
+
+        bool CopyToTexture(RecordDispatcher& copy_dispatcher, Resource* src, Resource* dest, D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
+            // type validation
+            if (src->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+                && dest->GetD3D12Resource()->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+                && src->GetResourceMeta().Buffer.type == Resource::HeapType::UPLOAD) {
+                copy_dispatcher.PostRecordTask({{[&, src, footprint, dest](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                    D3D12_TEXTURE_COPY_LOCATION src_loc {};
+                    src_loc.pResource = src->GetD3D12Resource();
+                    src_loc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                    src_loc.PlacedFootprint = footprint;
+                    D3D12_TEXTURE_COPY_LOCATION dest_loc {};
+                    dest_loc.pResource = dest->GetD3D12Resource();
+                    dest_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                    dest_loc.SubresourceIndex = 0;
+                    src->GetRenderWaitable().GPUWait();
+                    src->GetCopyWaitable().GPUWait();
+                    src->GetCopyWaitable().GetFenceValue() = nfv;
+                    dest->GetRenderWaitable().GPUWait();
+                    dest->GetCopyWaitable().GPUWait();
+                    dest->GetCopyWaitable().GetFenceValue() = nfv;
+                    list->CopyTextureRegion(&dest_loc, 0, 0, 0, &src_loc, nullptr);
+                    MarkAsExpired(src);
+                    return nullptr;
+                }, [](void*) {}}});
+                return true;
+            }
+            LFATAL("Cannot copy buffer {} to texture {}: type validation failed", src->GetResourceName(), dest->GetResourceName());
+            return false;
+        }
+
         bool MarkAsExpired(ResourceHandle rh) {
+            std::lock_guard guard(mtx_);
             auto iter = std::remove_if(alive_resources_.begin(), alive_resources_.end(), [&](const auto& h) {
                     return h == rh;
             });
@@ -571,7 +577,16 @@ namespace Prism
             return true;
         }
 
+        const std::vector<ResourceHandle>& GetAliveResources() const {
+            return alive_resources_;
+        }
+
+        const std::vector<ResourceHandle>& GetExpiredResources() const {
+            return expired_resource_;
+        }
+
         void Cleanup() {
+            std::lock_guard guard(mtx_);
             for (auto it = expired_resource_.begin(); it != expired_resource_.end();) {
                 if ((*it)->GetCopyWaitable().Completed() && (*it)->GetRenderWaitable().Completed()) {
                     delete *it;
@@ -579,6 +594,13 @@ namespace Prism
                 } else {
                     ++it;
                 }
+            }
+        }
+
+        ~ResourceManager() {
+            Cleanup();
+            for (auto& res : alive_resources_) {
+                delete res;
             }
         }
     };

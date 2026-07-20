@@ -8,7 +8,7 @@ namespace Prism
         friend class Waitable;
     private:
         ComPtr<ID3D12Fence> fence_;
-        uint64_t value_ {};
+        volatile uint64_t value_ {};
         HANDLE evt_;
     public:
         explicit Fence(ComPtr<ID3D12Device>& device) {
@@ -19,9 +19,7 @@ namespace Prism
         Fence(const Fence&) = delete;
         Fence(Fence&&) = delete;
         uint64_t AllocateValue(HANDLE mutex) {
-            WaitForSingleObject(mutex, INFINITE);
-            ++value_;
-            ReleaseMutex(mutex);
+            InterlockedIncrement64(reinterpret_cast<LONG64 volatile*>(&value_));
             return value_;
         }
 

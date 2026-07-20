@@ -133,15 +133,15 @@ public:
         auto MakeObjectInstance = [&](Texture* tex) -> ObjectDrawcall::Instance {
             if (tex->type == TextureType::PBR) {
                 return {
-                    .ColorTexIndex = oak_tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
-                    .NormalTexIndex = oak_tex->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index,
-                    .RoughTexIndex = oak_tex->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index,
+                    .ColorTexIndex = tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
+                    .NormalTexIndex = tex->Resources.PBR.normal_tex->GetResourceMeta().Tex2D.bind_index,
+                    .RoughTexIndex = tex->Resources.PBR.rough_tex->GetResourceMeta().Tex2D.bind_index,
                     .EmissiveTexIndex = UINT32_MAX,
                     .DisplacementTexIndex = UINT32_MAX
                 };
             } else {
                 return {
-                    .ColorTexIndex = oak_tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
+                    .ColorTexIndex = tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index,
                     .NormalTexIndex = UINT32_MAX,
                     .RoughTexIndex = UINT32_MAX,
                     .EmissiveTexIndex = UINT32_MAX,
@@ -158,11 +158,12 @@ public:
         mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("PyramidMesh", v_Pyramid, i_Pyramid, std::vector{ MakeObjectInstance(marble_tex) }, res_mgr_));
         mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("GroundMesh", v_Ground, i_Ground, std::vector{ MakeObjectInstance(bricks_tex) }, res_mgr_));
         mesh_mgr_.CreateMesh(LightMesh::CreateMeshFromStructuredData("DotlightMesh", v_LightSrc, i_LightSrc, res_mgr_));
-        scene_.GetAmbientLight() = { 0.0f, 0.0f, 0.0f, 1.0f };
+        scene_.GetAmbientLight() = { 0.5f, 0.5f, 0.5f, 1.0f };
         scene_.CreateObjectDrawcall("Pyramid", mesh_mgr_.GetMesh("PyramidMesh").value(), true);
         scene_.CreateObjectDrawcall("Ground", mesh_mgr_.GetMesh("GroundMesh").value(), true);
         scene_.CreateLightSrcDrawcall("Dotlight", mesh_mgr_.GetMesh("DotlightMesh").value());
         scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("Teacup"));
+        scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("VirtualCity"));
     }
 
     void Loop(MetronomeTimer& mt) override {
@@ -172,20 +173,25 @@ public:
         auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
         auto* teacup_drawcall = scene_.GetDrawcall<ModelDrawcall>("Teacup");
-        pyramid_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
-        ground_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
-        teacup_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(-2.0f, 0.0f, -2.0f), ScalingTransform(3.0f));
-        light_src_drawcall->GetLightInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 0.0f, -2.0f));
-        light_src_drawcall->GetLightInfo().position = {2.0f, 0.0f, -2.0f, 0.0f};
+        auto* virtual_city_drawcall = scene_.GetDrawcall<ModelDrawcall>("VirtualCity");
+        pyramid_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 2.0f, -2.0f));
+        ground_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(10.0f), TranslationTransform(0.0f, 0.0f, 0.0f));
+        teacup_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(10.0f), TranslationTransform(0.0f, 2.0f, 0.0f));
+        virtual_city_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(0.5f), TranslationTransform(0.0f, 0.0f, 0.0f));
+        light_src_drawcall->GetLightInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 10.0f, 0.0f));
+        light_src_drawcall->GetLightInfo().position = {2.0f, 10.0f, 0.0f, 0.0f};
         light_src_drawcall->GetLightInfo().color = {1.0f, 1.0f, 1.0f, 0.0f};
         pyramid_drawcall->ApplyProperties();
         ground_drawcall->ApplyProperties();
         light_src_drawcall->ApplyProperties();
         teacup_drawcall->ApplyProperties();
+        virtual_city_drawcall->ApplyProperties();
         ui_.DrawString("UbuntuMono", "Realistic PBR Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "This is a demo that shows basic pipeline. Visit https://github.com/youfantan/Prism to learn more", 30, 90, 16, { 1.0f, 1.0f, 0.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", std::format("Alive resources: {}", res_mgr_.GetAliveResources().size()), 30, 120, 16, { 0.0f, 0.0f, 1.0f, 1.0f });
+        ui_.DrawString("UbuntuMono", std::format("Expired resources: {}", res_mgr_.GetExpiredResources().size()), 30, 150, 16, { 1.0f, 0.0f, 0.0f, 1.0f });
         auto& render_pass = scene_.GetRenderPass();
         auto& shadow_pass = scene_.GetShadowPass();
         RecordDispatcher::RecordProcess perf_sync = {
@@ -199,12 +205,13 @@ public:
         shadow_pass({ shadow_pass.GetInitProc(),
             pyramid_drawcall->CreateShadowProcess(),
             teacup_drawcall->CreateShadowProcess(),
+            virtual_city_drawcall->CreateShadowProcess(),
             shadow_pass.GetSyncProc() });
         render_pass({ render_pass.GetInitProc(),
             light_src_drawcall->CreateRenderProcess(),
             pyramid_drawcall->CreateRenderProcess(),
             teacup_drawcall->CreateRenderProcess(),
-            ground_drawcall->CreateRenderProcess(),
+            virtual_city_drawcall->CreateRenderProcess(),
             ui_.CreateRenderProcess(),
             render_pass.GetSyncProc(),
             perf_sync
@@ -249,13 +256,13 @@ int main() {
         .copy_threads_count = 1,
         .lists_per_render_thread = 2,
         .lists_per_copy_thread = 5,
-        .fps_limit = 1000,
-        .max_texture_count = 128,
+        .fps_limit = 1001,
+        .max_texture_count = 256,
         .msaa_type = MSAAType::MSAA_4X,
         .rt_format = DXGI_FORMAT_R8G8B8A8_UNORM,
         .ds_format = DXGI_FORMAT_D32_FLOAT,
-        .rt_clear_color = {0.0f, 0.0f, 0.0f, 1.0f},
-        .enable_vsync = true,
+        .rt_clear_color = {0.3f, 0.3f, 0.6f, 1.0f},
+        .enable_vsync = false,
         .shaders_dir = "shaders",
         .textures_dir = "textures",
         .assets_dir = "assets",
