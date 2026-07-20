@@ -69,28 +69,54 @@ float3 PBR_Light(float3 world_pos, float3 camera_pos, float3 light_pos,
 }
 
 float4 main(Pixel p) : SV_Target {
-    Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.tex_idx)];
-    Texture2D normal_tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.normal_tex_idx)];
-    Texture2D rough_tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.rough_tex_idx)];
     Texture2D shadow_map = ResourceDescriptorHeap[NonUniformResourceIndex(shadow_index[0])];
-    float3 dx = ddx(p.world_position);
-    float3 dy = ddy(p.world_position);
-    float3 T = normalize(dx - dot(dx, p.normal) * p.normal);
-    float3 B = cross(p.normal, T);
-    float3x3 TBN = float3x3(T, B, p.normal);
-    float3 tnormal = normal_tex.Sample(LinearSampler, p.uv).xyz * 2.0 - 1.0;
-    float3 N = normalize(mul(tnormal, TBN));
-    float3 tex_color = tex.Sample(LinearSampler, p.uv);
-    float rough = rough_tex.Sample(LinearSampler, p.uv);
+    float3 tex_color;
+    float alpha;
+    if (p.tex_idx == 0xFFFFFFFF) {
+        tex_color = 1.0;
+        alpha = 1.0;
+    } else {
+        Texture2D tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.tex_idx)];
+        float4 sampled = tex.Sample(LinearSampler, p.uv);
+        tex_color = sampled.rgb;
+        alpha = sampled.a;
+    }
+
+    float3 N;
+    if (p.normal_tex_idx == 0xFFFFFFFF) {
+        N = normalize(p.normal);
+    } else {
+        Texture2D normal_tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.normal_tex_idx)];
+        float3 dx = ddx(p.world_position);
+        float3 dy = ddy(p.world_position);
+        float3 T = normalize(dx - dot(dx, p.normal) * p.normal);
+        float3 B = cross(p.normal, T);
+        float3x3 TBN = float3x3(T, B, p.normal);
+        float3 tnormal = normal_tex.Sample(LinearSampler, p.uv).xyz * 2.0 - 1.0;
+        N = normalize(mul(tnormal, TBN));
+    }
+
+    float rough;
+    float metallic;
+    if (p.rough_tex_idx == 0xFFFFFFFF) {
+        rough = 1.0;
+        metallic = 0.0;
+    } else {
+        Texture2D rough_tex = ResourceDescriptorHeap[NonUniformResourceIndex(p.rough_tex_idx)];
+        float4 mr = rough_tex.Sample(LinearSampler, p.uv);
+        rough = mr.y;
+        metallic = mr.z;
+    }
+
     float3 ndc = p.light_position.xyz / p.light_position.w;
     float2 uv = ndc.xy * 0.5 + 0.5;
     float d = ndc.z;
     float shadow = shadow_map.SampleCmpLevelZero(CompSampler, uv, d);
     float3 result = (float3)0;
     for (uint i = 0; i < dotlight_count; i++) {
-        float3 light = PBR_Light(p.world_position, camera_pos.xyz, dotlight_pos[i].xyz, N, dotlight_color[i], tex_color, rough, 0);
+        float3 light = PBR_Light(p.world_position, camera_pos.xyz, dotlight_pos[i].xyz, N, dotlight_color[i], tex_color, rough, metallic);
         result += light * shadow;
     }
     float3 ambient = ambient_light.rgb * tex_color;
-    return float4(result + ambient, 1.0);
+    return float4(result + ambient, alpha);
 }

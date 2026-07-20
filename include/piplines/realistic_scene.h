@@ -242,6 +242,113 @@ namespace Prism
         }
     };
 
+    class SkyboxDrawcall : public Drawcall {
+    public:
+        using Vertex = struct {
+            struct {
+                float X;
+                float Y;
+                float Z;
+            } Position;
+            struct {
+                float U;
+                float V;
+            } Tex;
+            struct {
+                    uint32_t SkyboxDirection;
+            } SkyboxDir;
+        };
+        using Index = uint32_t;
+
+        struct SkyboxInfo {
+            XMFLOAT4X4 world;
+            uint32_t back_tex_idx;
+            uint32_t bottom_tex_idx ;
+            uint32_t front_tex_idx;
+            uint32_t left_tex_idx;
+            uint32_t right_tex_idx;
+            uint32_t top_tex_idx;
+        };
+
+        struct SkyboxDirectionAttr {
+            constexpr static std::string_view Name = "SKYBOXDIR";
+            constexpr static std::string_view DXSemantic = "SKYBOXDIR";
+            constexpr static DXGI_FORMAT Format = DXGI_FORMAT_R32_UINT;
+            using DataType = uint32_t;
+            constexpr static size_t DataLength = 1;
+            constexpr static size_t Stride = sizeof(DataType) * DataLength;
+            static void MakeLayout(std::vector<D3D12_INPUT_ELEMENT_DESC>& inputs, uint32_t offset) {
+                inputs.emplace_back(DXSemantic.data(), 0, Format, 0, offset, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0);
+            }
+        };
+
+        using VertexAttrs = InputAttrs<PositionAttr<0>, TexCoord0Attr<0>, SkyboxDirectionAttr>;
+        using InstanceAttrs = InputAttrs<>;
+
+        class SkyboxPipeline : public Pipeline {
+            PrismApp* app_;
+        public:
+            explicit SkyboxPipeline(PrismApp* app);
+        };
+    private:
+        PrismApp* app_;
+        SkyboxPipeline* pipeline_;
+        ResourceHandle scene_info_;
+        CompactMesh* mesh_;
+        ResourceHandle skybox_info_buffer_;
+        Texture* skybox_tex_;
+        SkyboxInfo skybox_info_ {};
+
+    public:
+        SkyboxDrawcall(PrismApp* app, ResourceHandle scene_info, const std::string& skybox_name, CompactMesh* mesh, Texture* tex) : app_(app), scene_info_(scene_info), mesh_(mesh), skybox_tex_(tex) {
+            pipeline_ = app_->GetPipelineManager().GetPipeline<SkyboxPipeline>("SkyboxPipeline");
+            skybox_info_buffer_ = app_->GetResourceManager().CreateLocalBuffer<SkyboxInfo>("SkyboxInfo_" + skybox_name, D3D12_RESOURCE_STATE_COMMON);
+            StructuredView<SkyboxInfo> skybox_info(skybox_info_buffer_);
+            skybox_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            for (uint32_t i = 0; i < app_->GetInitializeParams().buffer_count; ++i) {
+                skybox_info.SelectLayer(i);
+                skybox_info[0].back_tex_idx = tex->Resources.Skybox.back->GetResourceMeta().Tex2D.bind_index;
+                skybox_info[0].bottom_tex_idx = tex->Resources.Skybox.bottom->GetResourceMeta().Tex2D.bind_index;
+                skybox_info[0].front_tex_idx = tex->Resources.Skybox.front->GetResourceMeta().Tex2D.bind_index;
+                skybox_info[0].left_tex_idx = tex->Resources.Skybox.left->GetResourceMeta().Tex2D.bind_index;
+                skybox_info[0].right_tex_idx = tex->Resources.Skybox.right->GetResourceMeta().Tex2D.bind_index;
+                skybox_info[0].top_tex_idx = tex->Resources.Skybox.top->GetResourceMeta().Tex2D.bind_index;
+            }
+        }
+        SkyboxDrawcall(const ObjectDrawcall&) = delete;
+        SkyboxDrawcall(ObjectDrawcall&&) = delete;
+
+        void ApplyProperties() {
+            StructuredView<SkyboxInfo> skybox_info(skybox_info_buffer_);
+            StructuredView<RealisticSceneInfo> scene_info(scene_info_);
+            skybox_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            scene_info.SelectLayer(app_->GetRenderContext().GetCurrentIndex());
+            skybox_info[0].world = MakeWorldMatrixF(ScalingTransform(100.0f), TranslationTransform(scene_info[0].camera_position.x, scene_info[0].camera_position.y, scene_info[0].camera_position.z));
+        }
+
+        RecordDispatcher::RecordProcess CreateRenderProcess() override {
+            return {[&, layer = app_->GetRenderContext().GetCurrentIndex()](ComPtr<ID3D12GraphicsCommandList> list, uint64_t nfv) {
+                mesh_->RenderSync(nfv);
+                skybox_info_buffer_->GetRenderWaitable().GetFenceValue() = nfv;
+                scene_info_->GetRenderWaitable().GetFenceValue() = nfv;
+                list->SetPipelineState(pipeline_->GetPSO().Get());
+                list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                ID3D12DescriptorHeap* heaps[] = { app_->GetResourceManager().GetTextureHeap().GetD3D12Heap() };
+                list->SetDescriptorHeaps(1, heaps);
+                list->SetGraphicsRootSignature(pipeline_->GetSignature());
+                list->SetGraphicsRootDescriptorTable(0, app_->GetResourceManager().GetTextureHeap().GetD3D12Heap()->GetGPUDescriptorHandleForHeapStart());
+                list->SetGraphicsRootConstantBufferView(1, skybox_info_buffer_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                list->SetGraphicsRootConstantBufferView(2, scene_info_->GetD3D12Resource(layer)->GetGPUVirtualAddress());
+                mesh_->DrawMesh(list);
+                return nullptr;
+            }};
+        }
+
+        ~SkyboxDrawcall() override {
+            app_->GetResourceManager().MarkAsExpired(skybox_info_buffer_);
+        }
+    };
+
     class ModelDrawcall : public Drawcall {
     public:
         using Vertex = ObjectDrawcall::Vertex;
@@ -265,16 +372,12 @@ namespace Prism
         ObjectInfo object_info_ {};
 
     public:
-        ModelDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ResourceHandle scene_info, const std::string& object_name, const std::vector<ModelLoader::Drawable>& drawables, bool use_pbr) : app_(app), shadow_rp_(shadow_rp), scene_info_(scene_info), drawables_(drawables), object_info_buffer_(drawables.size()) {
+        ModelDrawcall(PrismApp* app, ShadowRenderPass& shadow_rp, ResourceHandle scene_info, const std::string& object_name, const std::vector<ModelLoader::Drawable>& drawables) : app_(app), shadow_rp_(shadow_rp), scene_info_(scene_info), drawables_(drawables), object_info_buffer_(drawables.size()) {
             shadow_pipeline_ = app_->GetPipelineManager().GetPipeline<ShadowPipeline>("ShadowPipeline");
             for (size_t i = 0; i <  drawables_.size(); ++i) {
                 object_info_buffer_[i] = app_->GetResourceManager().CreateLocalBuffer<ObjectInfo>("ObjectInfo_" + object_name, D3D12_RESOURCE_STATE_COMMON);
             }
-            if (use_pbr) {
-                pipeline_ = app_->GetPipelineManager().GetPipeline<PBRObjectPipeline>("PBRObjectPipeline");
-            } else {
-                pipeline_ = app_->GetPipelineManager().GetPipeline<ObjectPipeline>("ObjectPipeline");
-            }
+            pipeline_ = app_->GetPipelineManager().GetPipeline<PBRObjectPipeline>("PBRObjectPipeline");
         }
         ModelDrawcall(const ModelDrawcall&) = delete;
         ModelDrawcall(ModelDrawcall&&) = delete;
@@ -368,6 +471,7 @@ namespace Prism
             app_->GetPipelineManager().CreatePipeline<ObjectDrawcall::PBRObjectPipeline>("PBRObjectPipeline", app);
             app_->GetPipelineManager().CreatePipeline<ObjectDrawcall::ShadowPipeline>("ShadowPipeline", app);
             app_->GetPipelineManager().CreatePipeline<LightSrcDrawcall::LightSrcPipeline>("LightSrcPipeline", app);
+            app_->GetPipelineManager().CreatePipeline<SkyboxDrawcall::SkyboxPipeline>("SkyboxPipeline", app);
         }
 
         RealisticScene(const RealisticScene&) = delete;
@@ -399,11 +503,20 @@ namespace Prism
             return dynamic_cast<ObjectDrawcall*>(drawcalls[name]);
         }
 
-        ModelDrawcall* CreateModelDrawcall(const ModelLoader::Model& model, bool enable_pbr = true) {
+        SkyboxDrawcall* CreateSkyboxDrawcall(const std::string& name, CompactMesh* mesh, Texture* sky_tex) {
+            if (drawcalls.contains(name)) {
+                LFATAL("Cannot create skybox drawcall {}: drawcall already exists", name);
+            }
+            auto* drawcall = new SkyboxDrawcall(app_, scene_info_, name, mesh, sky_tex);
+            drawcalls[name] = drawcall;
+            return dynamic_cast<SkyboxDrawcall*>(drawcalls[name]);
+        }
+
+        ModelDrawcall* CreateModelDrawcall(const ModelLoader::Model& model) {
             if (drawcalls.contains(model.name)) {
                 LFATAL("Cannot create model drawcall {}: drawcall already exists", model.name);
             }
-            auto* drawcall = new ModelDrawcall(app_, shadow_rp_, scene_info_, model.name, model.drawables, enable_pbr);
+            auto* drawcall = new ModelDrawcall(app_, shadow_rp_, scene_info_, model.name, model.drawables);
             drawcalls[model.name] = drawcall;
             return dynamic_cast<ModelDrawcall*>(drawcalls[model.name]);
         }

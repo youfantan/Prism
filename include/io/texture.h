@@ -12,6 +12,7 @@ namespace Prism
     enum class TextureType {
         IMAGE,
         PBR,
+        SKYBOX,
     };
 
     inline std::string GetTextureTypeString(TextureType tt) {
@@ -41,6 +42,14 @@ namespace Prism
                 ResourceHandle rough_tex;
                 ResourceHandle disp_tex;
             } PBR;
+            struct {
+                ResourceHandle back;
+                ResourceHandle bottom;
+                ResourceHandle front;
+                ResourceHandle left;
+                ResourceHandle right;
+                ResourceHandle top;
+            } Skybox;
         } Resources;
     };
 
@@ -135,15 +144,36 @@ namespace Prism
                         std::string ftype = file["type"];
                         std::string path = prefix_ + "/" + static_cast<std::string>(file["path"]);
                         if (ftype == "texture") {
-                            ntex.Resources.PBR.tex = UploadTexture("PBRTexture_{}", path);
+                            ntex.Resources.PBR.tex = UploadTexture(std::format("PBRTexture_{}", ntex.name), path);
                         } else if (ftype == "normal_texture") {
-                            ntex.Resources.PBR.normal_tex = UploadTexture("PBRTexture_Normal_{}", path);
+                            ntex.Resources.PBR.normal_tex = UploadTexture(std::format("PBRTexture_Normal_{}", ntex.name), path);
                         } else if (ftype == "roughness_texture") {
-                            ntex.Resources.PBR.rough_tex = UploadTexture("PBRTexture_Roughness_{}", path);
+                            ntex.Resources.PBR.rough_tex = UploadTexture(std::format("PBRTexture_Roughness_{}", ntex.name), path);
                         } else if (ftype == "displacement_texture") {
-                            ntex.Resources.PBR.disp_tex = UploadTexture("PBRTexture_Displacement_{}", path);
+                            ntex.Resources.PBR.disp_tex = UploadTexture(std::format("PBRTexture_Displacement_{}", ntex.name), path);
                         } else {
                             LFATAL("Unrecognized PBR texture type {}", ftype);
+                        }
+                    }
+                } else if (type == "skybox") {
+                    ntex.type = TextureType::SKYBOX;
+                    for (auto& file : files) {
+                        std::string ftype = file["type"];
+                        std::string path = prefix_ + "/" + static_cast<std::string>(file["path"]);
+                        if (ftype == "skybox-back") {
+                            ntex.Resources.Skybox.back = UploadTexture(std::format("Skybox_Back_{}", ntex.name), path);
+                        } else if (ftype == "skybox-bottom") {
+                            ntex.Resources.Skybox.bottom = UploadTexture(std::format("Skybox_Bottom_{}", ntex.name), path);
+                        } else if (ftype == "skybox-front") {
+                            ntex.Resources.Skybox.front = UploadTexture(std::format("Skybox_Front_{}", ntex.name), path);
+                        } else if (ftype == "skybox-left") {
+                            ntex.Resources.Skybox.left = UploadTexture(std::format("Skybox_Left_{}", ntex.name), path);
+                        } else if (ftype == "skybox-right") {
+                            ntex.Resources.Skybox.right = UploadTexture(std::format("Skybox_Right_{}", ntex.name), path);
+                        } else if (ftype == "skybox-top") {
+                            ntex.Resources.Skybox.top = UploadTexture(std::format("Skybox_Top_{}", ntex.name), path);
+                        } else {
+                            LFATAL("Unrecognized Skybox texture type {}", ftype);
                         }
                     }
                 } else {

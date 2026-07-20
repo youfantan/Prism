@@ -130,7 +130,10 @@ public:
 
     std::optional<std::pair<void*, size_t>> LoadShader(const std::string& name, ShaderType type) {
         std::string unified_key = std::format("{}.{}", name, ParseType(type));
-        if (!shader_binaries_.contains(unified_key)) return std::nullopt;
+        if (!shader_binaries_.contains(unified_key)) {
+            LFATAL("Cannot load shader {}(type {}): Shader not exists", name, ParseType(type));
+            return std::nullopt;
+        };
         auto& result = shader_binaries_[unified_key];
         return std::make_pair(reinterpret_cast<void*>(result.data()), result.size());
     }

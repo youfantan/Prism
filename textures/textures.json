@@ -25,6 +25,43 @@
       ]
     },
     {
+      "name": "sky",
+      "type": "skybox",
+      "from": "https://learnopengl.com/img/textures/skybox.zip",
+      "files": [
+        {
+          "path": "skybox/back.jpg",
+          "type": "skybox-back",
+          "format": "jpg"
+        },
+        {
+          "path": "skybox/bottom.jpg",
+          "type": "skybox-bottom",
+          "format": "jpg"
+        },
+        {
+          "path": "skybox/front.jpg",
+          "type": "skybox-front",
+          "format": "jpg"
+        },
+        {
+          "path": "skybox/left.jpg",
+          "type": "skybox-left",
+          "format": "jpg"
+        },
+        {
+          "path": "skybox/right.jpg",
+          "type": "skybox-right",
+          "format": "jpg"
+        },
+        {
+          "path": "skybox/top.jpg",
+          "type": "skybox-top",
+          "format": "jpg"
+        }
+      ]
+    },
+    {
       "name": "bricks",
       "type": "pbr",
       "from": "https://polyhaven.com/a/church_bricks_03",

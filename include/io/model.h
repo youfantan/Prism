@@ -151,7 +151,10 @@ namespace Prism
                     size_t texidx_offset = InstanceAttrs::GetSemanticOffset("TEXIDX");
                     std::string tex_info;
                     if (tex->type == TextureType::IMAGE) {
+                        uint32_t sentinel = UINT32_MAX;
                         memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t), &sentinel, sizeof(uint32_t));
+                        memcpy(&destination.instances[0] + texidx_offset + sizeof(uint32_t) * 2, &sentinel, sizeof(uint32_t));
                         tex_info = std::format("type Image, referenced texture index: {}", tex->Resources.Image.tex->GetResourceMeta().Tex2D.bind_index);
                     } else if (tex->type == TextureType::PBR) {
                         memcpy(&destination.instances[0] + texidx_offset, &tex->Resources.PBR.tex->GetResourceMeta().Tex2D.bind_index, sizeof(uint32_t));

@@ -96,6 +96,48 @@ public:
            20,21,22, 20,22,23,
         };
 
+        std::vector<SkyboxDrawcall::Index> i_SkyboxCube = {
+            0, 2, 1,  0, 3, 2,
+            4, 6, 5,  5, 6, 7,
+            8,10, 9,  8,11,10,
+            12,14,13, 12,15,14,
+            16,18,17, 16,19,18,
+            20,22,21, 20,23,22,
+        };
+
+        std::vector<SkyboxDrawcall::Vertex> v_SkyboxCube = {
+            // Front face (+Z) - U flipped
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, 2},
+            {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}, 2},
+            {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}, 2},
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, 2},
+            // Back face (-Z)
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, 0},
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, 0},
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}, 0},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}, 0},
+            // Right face (+X)
+            {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, 4},
+            {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, 4},
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, 4},
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, 4},
+            // Left face (-X)
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}, 3},
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, 3},
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, 3},
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, 3},
+            // Top face (+Y)
+            {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}, 5},
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}, 5},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}, 5},
+            {{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}, 5},
+            // Bottom face (-Y)
+            {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, 1},
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}, 1},
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}, 1},
+            {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}, 1},
+        };
+
         std::vector<ObjectDrawcall::Vertex> v_Ground = {
             {{ -0.5f, 0.0f, 0.5f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
             {{ 0.5f, 0.0f, 0.5f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }},
@@ -130,6 +172,7 @@ public:
         auto* oak_tex = tex_loader_.Get("oak").value();
         auto* marble_tex = tex_loader_.Get("marble").value();
         auto* bricks_tex = tex_loader_.Get("bricks").value();
+        auto* skybox_tex = tex_loader_.Get("sky").value();
         auto MakeObjectInstance = [&](Texture* tex) -> ObjectDrawcall::Instance {
             if (tex->type == TextureType::PBR) {
                 return {
@@ -155,15 +198,18 @@ public:
 
         using ObjectMesh = Mesh<ObjectDrawcall::VertexAttrs, ObjectDrawcall::Index, ObjectDrawcall::InstanceAttrs>;
         using LightMesh = Mesh<LightSrcDrawcall::VertexAttrs, LightSrcDrawcall::Index, LightSrcDrawcall::InstanceAttrs>;
+        using SkyboxMesh = Mesh<SkyboxDrawcall::VertexAttrs, SkyboxDrawcall::Index, SkyboxDrawcall::InstanceAttrs>;
         mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("PyramidMesh", v_Pyramid, i_Pyramid, std::vector{ MakeObjectInstance(marble_tex) }, res_mgr_));
         mesh_mgr_.CreateMesh(ObjectMesh::CreateMeshFromStructuredData("GroundMesh", v_Ground, i_Ground, std::vector{ MakeObjectInstance(bricks_tex) }, res_mgr_));
         mesh_mgr_.CreateMesh(LightMesh::CreateMeshFromStructuredData("DotlightMesh", v_LightSrc, i_LightSrc, res_mgr_));
+        mesh_mgr_.CreateMesh(SkyboxMesh::CreateMeshFromStructuredData("SkyboxMesh", v_SkyboxCube, i_SkyboxCube, res_mgr_));
         scene_.GetAmbientLight() = { 0.5f, 0.5f, 0.5f, 1.0f };
         scene_.CreateObjectDrawcall("Pyramid", mesh_mgr_.GetMesh("PyramidMesh").value(), true);
         scene_.CreateObjectDrawcall("Ground", mesh_mgr_.GetMesh("GroundMesh").value(), true);
         scene_.CreateLightSrcDrawcall("Dotlight", mesh_mgr_.GetMesh("DotlightMesh").value());
+        scene_.CreateSkyboxDrawcall("Skybox", mesh_mgr_.GetMesh("SkyboxMesh").value(), skybox_tex);
         scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("Teacup"));
-        scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("VirtualCity"));
+        scene_.CreateModelDrawcall(model_loader_.LoadGLB<ModelDrawcall::VertexAttrs, ModelDrawcall::Index, ModelDrawcall::InstanceAttrs>("Room"));
     }
 
     void Loop(MetronomeTimer& mt) override {
@@ -173,11 +219,12 @@ public:
         auto* pyramid_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Pyramid");
         auto* ground_drawcall = scene_.GetDrawcall<ObjectDrawcall>("Ground");
         auto* teacup_drawcall = scene_.GetDrawcall<ModelDrawcall>("Teacup");
-        auto* virtual_city_drawcall = scene_.GetDrawcall<ModelDrawcall>("VirtualCity");
+        auto* room_drawcall = scene_.GetDrawcall<ModelDrawcall>("Room");
+        auto* skybox_drawcall = scene_.GetDrawcall<SkyboxDrawcall>("Skybox");
         pyramid_drawcall->GetObjectInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 2.0f, -2.0f));
         ground_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(10.0f), TranslationTransform(0.0f, 0.0f, 0.0f));
         teacup_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(10.0f), TranslationTransform(0.0f, 2.0f, 0.0f));
-        virtual_city_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(0.5f), TranslationTransform(0.0f, 0.0f, 0.0f));
+        room_drawcall->GetObjectInfo().world = MakeWorldMatrixF(ScalingTransform(5.0f), TranslationTransform(0.0f, 0.0f, 0.0f));
         light_src_drawcall->GetLightInfo().world = MakeWorldMatrixF(TranslationTransform(2.0f, 10.0f, 0.0f));
         light_src_drawcall->GetLightInfo().position = {2.0f, 10.0f, 0.0f, 0.0f};
         light_src_drawcall->GetLightInfo().color = {1.0f, 1.0f, 1.0f, 0.0f};
@@ -185,7 +232,8 @@ public:
         ground_drawcall->ApplyProperties();
         light_src_drawcall->ApplyProperties();
         teacup_drawcall->ApplyProperties();
-        virtual_city_drawcall->ApplyProperties();
+        room_drawcall->ApplyProperties();
+        skybox_drawcall->ApplyProperties();
         ui_.DrawString("UbuntuMono", "Realistic PBR Pipeline Demo", 30, 24, 24, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", "Prism Renderer using DirectX12 API", 30, 50, 16, { 1.0f, 1.0f, 1.0f, 1.0f });
         ui_.DrawString("UbuntuMono", std::format("Current FPS: {}", perf_.QueryFPS()), 30, 70, 16, { 0.0f, 1.0f, 0.0f, 1.0f });
@@ -203,15 +251,16 @@ public:
             }
         };
         shadow_pass({ shadow_pass.GetInitProc(),
-            pyramid_drawcall->CreateShadowProcess(),
-            teacup_drawcall->CreateShadowProcess(),
-            virtual_city_drawcall->CreateShadowProcess(),
+            //pyramid_drawcall->CreateShadowProcess(),
+            //teacup_drawcall->CreateShadowProcess(),
+            room_drawcall->CreateShadowProcess(),
             shadow_pass.GetSyncProc() });
         render_pass({ render_pass.GetInitProc(),
             light_src_drawcall->CreateRenderProcess(),
-            pyramid_drawcall->CreateRenderProcess(),
-            teacup_drawcall->CreateRenderProcess(),
-            virtual_city_drawcall->CreateRenderProcess(),
+            skybox_drawcall->CreateRenderProcess(),
+            //pyramid_drawcall->CreateRenderProcess(),
+            //teacup_drawcall->CreateRenderProcess(),
+            room_drawcall->CreateRenderProcess(),
             ui_.CreateRenderProcess(),
             render_pass.GetSyncProc(),
             perf_sync

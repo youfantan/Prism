@@ -160,7 +160,7 @@ namespace Prism
         requires std::derived_from<T, Pipeline>
         T* GetPipeline(const std::string& name) {
             if (!pipelines_.contains(name)) {
-                LFATAL("Cannot get pipeline {}: pipeline not exists");
+                LFATAL("Cannot get pipeline {}: pipeline not exists", name);
                 return nullptr;
             }
             auto* pipeline = pipelines_[name];

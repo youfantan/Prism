@@ -17,6 +17,7 @@ struct Pixel
     uint normal_tex_idx : NTEXIDX;
     uint rough_tex_idx : RTEXIDX;
 };
+
 cbuffer Presets : register(b1) {
     row_major float4x4 world;
 }

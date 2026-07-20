@@ -55,6 +55,20 @@
       "path": "shadow.vs.hlsl",
       "profile": "vs_6_6",
       "entry": "main"
+    },
+    {
+      "name": "skybox",
+      "type": "vs",
+      "path": "skybox.vs.hlsl",
+      "profile": "vs_6_6",
+      "entry": "main"
+    },
+    {
+      "name": "skybox",
+      "type": "ps",
+      "path": "skybox.ps.hlsl",
+      "profile": "ps_6_6",
+      "entry": "main"
     }
   ]
 }
